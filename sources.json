@@ -1,0 +1,11 @@
+{
+  "skill-forge": {
+    "type": "remote",
+    "url": "https://github.com/<your-account>/skill-forge",
+    "branch": "main",
+    "subpath": "",
+    "installed_sha": "",
+    "self": true,
+    "installed_at": "2026-08-11T00:00:00Z"
+  }
+}

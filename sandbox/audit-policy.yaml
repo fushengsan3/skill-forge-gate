@@ -1,0 +1,71 @@
+# Skill Forge — L5 审计策略
+# 定义沙箱中需要跟踪的系统调用和文件操作
+
+audit_rules:
+  # 系统调用审计 —— 任何超出预期的 syscall 都记录
+  syscalls:
+    monitor:
+      - execve         # 进程创建
+      - open           # 文件打开
+      - openat         # 文件打开（变体）
+      - write          # 文件写入
+      - unlink         # 文件删除
+      - unlinkat       # 文件删除（变体）
+      - rename         # 文件重命名
+      - chmod          # 权限修改
+      - chown          # 所有者修改
+      - socket         # 网络 socket 创建
+      - connect        # 网络连接
+      - sendto         # 网络发送
+      - bind           # 端口绑定
+
+  # 文件访问审计
+  files:
+    # 任何对这些路径的访问都记录
+    sensitive_paths:
+      - /etc/
+      - ~/.ssh/
+      - ~/.aws/
+      - ~/.gcloud/
+      - ~/.azure/
+      - ~/.kube/
+      - ~/.docker/config.json
+      - ~/.npmrc
+      - ~/.pip/pip.conf
+      - ~/.gitconfig
+      - ~/.claude/settings.json
+      - /proc/
+      - /sys/
+
+    # 忽略这些路径（减少噪音）
+    ignore_paths:
+      - /tmp/
+      - /dev/null
+      - /dev/urandom
+      - /usr/lib/
+      - /usr/share/
+
+  # 网络审计
+  network:
+    # 允许的目标
+    allowed_targets:
+      - api.anthropic.com:443
+      - api.github.com:443
+      - raw.githubusercontent.com:443
+    # 记录所有其他连接尝试
+    log_denied: true
+
+# 报告格式
+report:
+  format: json
+  fields:
+    - timestamp
+    - syscall
+    - process_name
+    - file_path
+    - network_target
+    - severity
+  severity_levels:
+    - info       # 正常行为
+    - warning    # 可疑但可能合法
+    - critical   # 明确违规

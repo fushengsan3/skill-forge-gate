@@ -1,0 +1,32 @@
+{
+  "_notes": [
+    "AI 翻译后端的内置提示词清单。每个提示词就是一份 system prompt 正文。",
+    "",
+    "为什么没有内置 'Immersive Translate' 的提示词：它质量最高（纯译文铁律 + 保代码/标识符/",
+    "路径/URL/Markdown 结构），但该仓库的 LICENSE 与 LICENSE.md 实测均返回 404 ——",
+    "没有许可证声明等于默认保留所有权利，不能打包进这个程序分发。",
+    "所以只吸收了它的**规则**（翻译实践本身不受版权保护），正文是自己写的。",
+    "如果将来它补上许可证，可以再加一条 entry。"
+  ],
+  "default": "skill-forge-tech",
+  "prompts": [
+    {
+      "id": "skill-forge-tech",
+      "name": "技术简介（内置）",
+      "description": "为简短的 skill 简介调优：只出纯译文，保留代码/标识符/版本号，术语保持一致",
+      "best_for": "一到三句话的 skill 描述",
+      "license": "MIT",
+      "source": "skill-forge 自带",
+      "file": "skill-forge-tech.md"
+    },
+    {
+      "id": "doc-mit",
+      "name": "技术文档（改编自 MIT 源）",
+      "description": "面向 README / 设计文档的长文本：保留标题层级、表格、Mermaid 图与 YAML frontmatter",
+      "best_for": "整篇文档",
+      "license": "MIT",
+      "source": "majiayu000/claude-skill-registry → translate-doc（改编，已剥离文件工作流部分）",
+      "file": "doc-mit.md"
+    }
+  ]
+}
