@@ -88,6 +88,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 /* Badges */
 .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
 .badge-new { background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; }
+/* 这两个类原先只在 JS 里被引用，页面上没有任何规则 —— 角标会退回基础样式，
+   跟 badge-new 长得不一样但不明显，所以一直没人注意。 */
+.badge-verified { background: rgba(46, 204, 113, .18); color: #2ecc71; }
+.badge-unverified { background: rgba(240, 192, 64, .15); color: var(--accent); }
 .badge-update { background: linear-gradient(135deg, #f093fb, #f5576c); color: #fff; }
 .badge-source { font-size: 10px; padding: 1px 6px; border-radius: 10px; }
 .badge-jl { background: rgba(79,195,247,0.2); color: var(--source-jl); border: 1px solid rgba(79,195,247,0.4); }
@@ -376,7 +380,7 @@ const LANG = {
     view_detail: '查看详情', install_btn: '📦 一键安装', update_btn: '🔄 更新', queued: '已加入队列 ✓',
     install_toast: '已加入安装队列', install_hint: '下次启动 Claude Code 时将提示安装',
     sort_by: '排序', filter_by: '筛选',
-    source_jeremylongshore: '社区精选', source_github_topic: 'GitHub Topic',
+    source_jeremylongshore: '社区精选', 'source_github-topic': 'GitHub Topic',
     source_claudskills: 'ClaudSkills', source_external: '外部源', source_search: '搜索',
     rating_stars: '星', rating_score: '分', rating_quality: '质量',
     translate: '翻译', week_report: '周度发现报告', year: '年', month: '月', day: '日',
@@ -385,6 +389,12 @@ const LANG = {
     installed_stale: 'Bridge 未运行 —— 以下是上次扫描时嵌入的快照，可能不是最新的',
     installed_offline: 'Bridge 未运行，且页面里没有嵌入的名单',
     uninstall_offline: 'Bridge 未运行，无法卸载。启动 Bridge 后再试。',
+    no_ext_sources: '暂无外部数据源',
+    queue_empty: '安装队列为空',
+    queue_ask_install: '[确定] 立即安装    [取消] 保留队列',
+    queue_ask_clear: '要清空安装队列吗？\n\n[确定] 清空（不可撤销）    [取消] 保留',
+    queue_cleared: '队列已清空',
+    cred_error: '密钥操作失败，bridge 可能未运行。请稍后重试。',
     // R2 分组 + R3 滞后
     scan_period: '扫描期', this_scan: '本期新增', earlier: '更早发现',
     first_seen: '首次发现', published: '发布', last_push: '最近推送', upstream_changed: '上游变更',
@@ -426,7 +436,7 @@ const LANG = {
     view_detail: 'View', install_btn: '📦 Install', update_btn: '🔄 Update', queued: 'Queued ✓',
     install_toast: 'Added to queue', install_hint: 'Will prompt install on next Claude Code launch',
     sort_by: 'Sort', filter_by: 'Filter',
-    source_jeremylongshore: 'Curated', source_github_topic: 'GitHub Topic',
+    source_jeremylongshore: 'Curated', 'source_github-topic': 'GitHub Topic',
     source_claudskills: 'ClaudSkills', source_external: 'External', source_search: 'Search',
     rating_stars: 'stars', rating_score: 'score', rating_quality: 'quality',
     translate: 'Translate', week_report: 'Weekly Discovery Report', year: '-', month: '-', day: '',
@@ -435,6 +445,12 @@ const LANG = {
     installed_stale: 'Bridge not running — showing the snapshot embedded at last scan; it may be out of date',
     installed_offline: 'Bridge not running, and no snapshot is embedded in this page',
     uninstall_offline: 'Bridge not running, cannot uninstall. Start the bridge and try again.',
+    no_ext_sources: 'No external sources yet',
+    queue_empty: 'Install queue is empty',
+    queue_ask_install: '[OK] Install now    [Cancel] Keep the queue',
+    queue_ask_clear: 'Clear the install queue?\n\n[OK] Clear (cannot be undone)    [Cancel] Keep',
+    queue_cleared: 'Queue cleared',
+    cred_error: 'Credential operation failed — the bridge may not be running. Try again later.',
     // R2 groups + R3 lag
     scan_period: 'Scan period', this_scan: 'New this scan', earlier: 'Found earlier',
     first_seen: 'First seen', published: 'Published', last_push: 'Last push', upstream_changed: 'Upstream change',
@@ -1224,18 +1240,31 @@ function queueInstall(name, url) {
 }
 
 function showQueue() {
-  if (installQueue.length === 0) { alert(currentLang === 'zh' ? '安装队列为空' : 'Queue is empty'); return; }
+  if (installQueue.length === 0) { alert(t('queue_empty')); return; }
   var list = installQueue.map(function(q, i) { return (i+1) + '. ' + q.name + ' (' + t('pending_check') + ')'; }).join('\n');
-  var msg = (currentLang === 'zh' ? '安装队列' : 'Install Queue') + ' (' + installQueue.length + '):\n\n' + list + '\n\n' + (currentLang === 'zh' ? '[确定] 立即安装  [取消] 保留  [清空] 清除队列' : '[OK] Install Now  [Cancel] Keep  [Clear] Clear Queue');
-  var choice = confirm(msg);
-  if (choice) {
+
+  // ⚠️ 原生 confirm() 按规范**只返回 true/false**，没有第三个值。
+  // 原先这里写着「[确定] 立即安装  [取消] 保留  [清空] 清除队列」三个选项，
+  // 然后用 if (choice) / else if (choice === false) / else 去接 —— 那个 else
+  // 在结构上**永远走不到**（旁边还留着注释"User pressed some other key"，
+  // 说明作者以为 confirm 会返回别的值）。于是"清空队列"这个功能
+  // 表面上宣传了，实际上按不出来，而且面板里没有别的清空入口。
+  //
+  // 现在拆成两次询问：第一次决定装不装，第二次才问清不清。
+  // 每个分支都真的可达，文案也和实际按钮对得上。
+  var msg = (currentLang === 'zh' ? '安装队列' : 'Install Queue')
+          + ' (' + installQueue.length + '):\n\n' + list + '\n\n'
+          + t('queue_ask_install');
+  if (confirm(msg)) {
     triggerInstall();
-  } else if (choice === false) {
-    // Cancel → keep queue
-  } else {
-    // User pressed some other key → treat as clear
-    var clearMsg = (currentLang === 'zh' ? '确定要清除安装队列吗？' : 'Clear the install queue?');
-    if (confirm(clearMsg)) { installQueue = []; saveQueue(); updateQueueBadge(); renderSkills(); }
+    return;
+  }
+  if (confirm(t('queue_ask_clear'))) {
+    installQueue = [];
+    saveQueue();
+    updateQueueBadge();
+    renderSkills();
+    showToast('🗑 ' + t('queue_cleared'));
   }
 }
 
@@ -1586,7 +1615,7 @@ function requestCredential(name, btn) {
     })
     .catch(function() {
       // bridge 连不上时，密钥输入框根本没法弹（框是 bridge 拉起来的）
-      showToast('⚠ ' + t('uninstall_offline'));
+      showToast('⚠ ' + t('cred_error'));  // 这里是密钥，不是卸载
       renderSecretRows();
     });
 }
@@ -1603,7 +1632,7 @@ function deleteCredential(name) {
       showToast('🗑 ' + t('key_deleted'));
       renderSecretRows();
     })
-    .catch(function() { showToast('⚠ ' + t('uninstall_offline')); });
+    .catch(function() { showToast('⚠ ' + t('cred_error')); });
 }
 
 // ============================================================
