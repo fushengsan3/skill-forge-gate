@@ -21,6 +21,7 @@ README 宣称的安全流水线对那条路是空的，而面板还给每条队�
 import contextlib
 import importlib
 import json
+import pathlib
 import shutil
 import sys
 import tempfile
@@ -239,9 +240,19 @@ def run_install_gate_check(tmp: Path):
 
     real_clone = installer._git_clone
     real_root = installer.SKILL_ROOT
+    # ⚠️ 光 patch SKILL_ROOT 不够 —— `_update_sources_json` 写的是另一个
+    # 模块级常量 SOURCES_FILE（= ~/.claude/skills/skill-forge/sources.json）。
+    # 不一起 patch 的话，这个测试会把 "good-skill" 这种假数据**写进用户真实的
+    # sources.json**（目录落在临时目录、注册表落在真实文件，最难发现的那种）。
+    # 实测真的发生过。
+    real_sources = installer.SOURCES_FILE
+    real_queue = installer.QUEUE_FILE
     installer._git_clone = lambda url, dest, branch="main": (
         shutil.copytree(repo, dest), (True, ""))[1]
     installer.SKILL_ROOT = skills_root
+    installer.SOURCES_FILE = work / "sources.json"
+    installer.QUEUE_FILE = work / "install-queue.json"
+    (work / "sources.json").write_text("{}", encoding="utf-8")
     try:
         # 预检说不行
         real_verify = precheck.verify_repo
@@ -271,9 +282,19 @@ def run_install_gate_check(tmp: Path):
         check(r2.get("ok") is True, "预检通过 → 正常安装", str(r2.get("error"))[:80])
         check((skills_root / "good-skill").exists(), "装进去了")
         check(r2.get("trust_level") == "verified", "成功时带上真实的 trust_level")
+        check(str(installer.SOURCES_FILE).startswith(str(work)),
+              "★ 安装路径写的是临时 sources.json，不是用户真实那份")
+        real_sources_file = pathlib.Path.home() / ".claude" / "skills" / "skill-forge" / "sources.json"
+        if real_sources_file.exists():
+            import json as _json
+            real_data = _json.loads(real_sources_file.read_text(encoding="utf-8"))
+            bad = [k for k in real_data if k in ("good-skill", "evil", "evil2")]
+            check(not bad, "★ 没往用户真实的 sources.json 里写测试数据", str(bad))
     finally:
         installer._git_clone = real_clone
         installer.SKILL_ROOT = real_root
+        installer.SOURCES_FILE = real_sources
+        installer.QUEUE_FILE = real_queue
 
 
 if __name__ == "__main__":

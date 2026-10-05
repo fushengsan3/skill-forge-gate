@@ -96,7 +96,31 @@ def run_weekly_scan():
 
     # 2. 过滤已安装（排除无更新的，保留有更新的）
     installed = load_installed_skills()
-    skills = filter_skills(skills, installed)
+
+    # 2.5 给**已装的**查上游 HEAD SHA。
+    #
+    # filter_skills 靠它判断"有没有新提交"。在这之前 fetcher 从来不产出
+    # latest_sha，所以那个判断恒假 —— 面板的"可更新"永远是 0，而且已装 skill
+    # 即使上游真有新提交也会被**静默丢掉**。
+    #
+    # 只查已装的（通常十几个），不给发现总数（几百个）各查一次。
+    latest_shas = {}
+    try:
+        from daemon.fetcher import fetch_latest_shas
+        latest_shas = fetch_latest_shas(installed)
+        watched = [k for k, v in installed.items()
+                   if isinstance(v, dict) and not v.get("self")]
+        if len(latest_shas) < len(watched):
+            # 不静默：查不到的那些，本轮**判断不了**有没有更新。
+            # 面板上它们会显示成"没有更新" —— 那是没查到，不是没更新。
+            log(f"⚠️ 上游 SHA：{len(latest_shas)}/{len(watched)} 查成功，"
+                f"{len(watched) - len(latest_shas)} 个判断不了更新")
+        else:
+            log(f"上游 SHA：{len(latest_shas)}/{len(watched)} 查成功")
+    except Exception as e:
+        log(f"查上游 SHA 失败，本轮无法判断更新: {e}")
+
+    skills = filter_skills(skills, installed, latest_shas)
 
     # 3. 分类排序
     categorized = classify_and_sort(skills)
@@ -173,20 +197,48 @@ def load_installed_skills() -> dict:
         return {}
 
 
-def filter_skills(skills: list, installed: dict) -> list:
-    """过滤已安装且无更新的 skill"""
+def _looks_like_sha(value: str) -> bool:
+    """这个字符串像不像一个 git SHA。
+
+    为什么需要它：实测发现 sources.json 里有一条 `installed_sha` 的值是
+    **字面字符串 "installed"** —— 某个安装路径把状态写进了 SHA 字段。
+    拿它去跟真 SHA 比，结果永远是"不相等"，于是那个 skill **每一轮都被
+    报成"有更新"**，而且点进去也更新不了（它本来就没变）。
+
+    所以比较之前先确认两边都是 SHA。不是的话就当作"判断不了"，
+    而不是当作"有更新" —— 前者是诚实的，后者是假警报。
+    """
+    import re
+    return bool(re.fullmatch(r"[0-9a-fA-F]{7,40}", (value or "").strip()))
+
+
+def filter_skills(skills: list, installed: dict, latest_shas: dict = None) -> list:
+    """过滤已安装且无更新的 skill。
+
+    `latest_shas` 是 {名字: 上游HEAD的SHA}，由 fetcher.fetch_latest_shas() 查来。
+    以前这个参数不存在，于是 `skill.get("latest_sha")` 恒为空 —— 更新分支
+    永远进不去，已装 skill 一律被当成"没更新"丢掉。
+
+    仍然接受 skill 字典里自带的 latest_sha（测试会直接塞），
+    显式传入的 latest_shas 优先。
+    """
+    latest_shas = latest_shas or {}
     filtered = []
     for skill in skills:
         name = skill.get("name", "")
         if name in installed:
             # 已安装，检查是否有更新
-            installed_sha = installed[name].get("installed_sha", "")
-            upstream = skill.get("latest_sha", "")
-            if upstream and installed_sha and upstream != installed_sha:
+            installed_sha = str(installed[name].get("installed_sha", "") or "")
+            upstream = latest_shas.get(name) or skill.get("latest_sha", "")
+            # 两边都得是**真的 SHA** 才能比。本地那份可能是 "installed"
+            # 这种垃圾值（实测有），拿它比会得出"永远有更新"的假警报。
+            if (_looks_like_sha(upstream) and _looks_like_sha(installed_sha)
+                    and upstream[:8] != installed_sha[:8]):
                 skill["status"] = "update_available"
                 skill["installed_sha"] = installed_sha
                 filtered.append(skill)
-            # SHA 相同 → 排除
+            # SHA 相同 → 排除；上游 SHA 查不到 → 也排除（判断不了，保守处理），
+            # 但这种情况 watchdog 会在日志里说明有多少个判断不了。
         else:
             skill["status"] = "new"
             filtered.append(skill)
