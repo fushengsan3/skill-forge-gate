@@ -17,7 +17,7 @@ Skill Forge 在运维之上增加了五层安全验证：
 | **L2 来源** | GitHub 仓库可达、未归档、Star 数、维护迹象 | GitHub API |
 | **L3 内容安全** | 危险命令（rm -rf、curl\|bash、sudo 等）、可疑模式 | 正则规则引擎（红/黄/蓝三级） |
 | **L4 冲突检测** | 文件覆盖、Hook 竞争、功能重叠、系统盘写入 | 简单规则 + Claude API（系统盘写入） |
-| **L5 沙箱审计** | 在隔离容器中加载 skill，收集 tool_call，评估行为 | Docker / gVisor |
+| **L5 沙箱审计** | 在加固过的 Docker 容器里加载 skill，收集它**计划**执行的 tool_call | Docker（gVisor 尚未接上） |
 
 ## 快速安装
 
@@ -73,7 +73,7 @@ powershell -ExecutionPolicy Bypass -File ~/.claude/skills/skill-forge/daemon/ins
 | `l2_source.py` | **查来源**：GitHub 仓库是否可达、是否已归档、Star 数、最近维护迹象。走 GitHub API。 |
 | `l3_content_scan.py` | **查内容危险度**。扫描 SKILL.md 及所有附带脚本，三级分类：🔴 红色（`rm -rf /`、`curl\|bash`、`sudo` 等 13 条，直接拒绝）、🟡 黄色（网络请求、读取环境变量等 11 条，需人工复核）、🔵 蓝色（仅记录，不参与判定）。 |
 | `l4_conflict_detect.py` | **查冲突**：是否覆盖已有 skill 的文件、两个 skill 是否争抢同一 Hook、功能描述相似度是否超 60%、是否向系统盘写入。系统盘写入会额外调用 Claude API 深度分析。 |
-| `l5_sandbox.py` | **沙箱试跑**。仅在 L3 出黄、L2 需复核、或来源不在信任列表时触发。在 Docker 隔离环境中加载 skill，观察其实际想执行的 tool_call 序列。Docker 不可用时自动跳过。 |
+| `l5_sandbox.py` | **沙箱试跑**。在加固过的 Docker 容器里（skill 只读挂载、非 root、能力全削、资源受限、跑完即毁）加载 skill，收集它**计划**执行的 tool_call 序列。⚠️ **这些调用不会被真的执行** —— 拿到的是「它想干什么」。Docker 或 `ANTHROPIC_API_KEY` 缺失时如实报 ERROR，预检那边按「跳过」处理。 |
 
 ### daemon/ — 后台常驻
 
