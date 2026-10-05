@@ -805,16 +805,16 @@ class TestWatchdog(unittest.TestCase):
     def test_filter_skills_no_update(self):
         """验证已安装且 SHA 一致的 skill 被过滤掉"""
         from daemon.watchdog import filter_skills
-        skills = [{"name": "existing-skill", "stars": 10, "latest_sha": "abc123"}]
-        installed = {"existing-skill": {"installed_sha": "abc123"}}
+        skills = [{"name": "existing-skill", "stars": 10, "latest_sha": "a1b2c3d400000000000000000000000000000000"}]
+        installed = {"existing-skill": {"installed_sha": "a1b2c3d400000000000000000000000000000000"}}
         filtered = filter_skills(skills, installed)
         self.assertEqual(len(filtered), 0, "SHA 一致的已安装 skill 应被过滤")
 
     def test_filter_skills_update_available(self):
         """验证有更新的 skill 被标记为 'update_available'"""
         from daemon.watchdog import filter_skills
-        skills = [{"name": "update-skill", "stars": 10, "latest_sha": "new456"}]
-        installed = {"update-skill": {"installed_sha": "old123"}}
+        skills = [{"name": "update-skill", "stars": 10, "latest_sha": "b2c3d4e500000000000000000000000000000000"}]
+        installed = {"update-skill": {"installed_sha": "a1b2c3d400000000000000000000000000000000"}}
         filtered = filter_skills(skills, installed)
         self.assertEqual(len(filtered), 1)
         self.assertEqual(filtered[0]["status"], "update_available")
@@ -823,7 +823,7 @@ class TestWatchdog(unittest.TestCase):
         """验证无 SHA 信息时不匹配"""
         from daemon.watchdog import filter_skills
         skills = [{"name": "no-sha-skill", "stars": 10}]
-        installed = {"no-sha-skill": {"installed_sha": "abc123"}}
+        installed = {"no-sha-skill": {"installed_sha": "a1b2c3d400000000000000000000000000000000"}}
         filtered = filter_skills(skills, installed)
         self.assertEqual(len(filtered), 0)
 
@@ -832,12 +832,12 @@ class TestWatchdog(unittest.TestCase):
         from daemon.watchdog import filter_skills
         skills = [
             {"name": "new-one", "stars": 50},
-            {"name": "updated-one", "stars": 100, "latest_sha": "v2"},
-            {"name": "unchanged", "stars": 75, "latest_sha": "v1"},
+            {"name": "updated-one", "stars": 100, "latest_sha": "b2c3d4e500000000000000000000000000000000"},
+            {"name": "unchanged", "stars": 75, "latest_sha": "a1b2c3d400000000000000000000000000000000"},
         ]
         installed = {
-            "updated-one": {"installed_sha": "v1"},
-            "unchanged": {"installed_sha": "v1"},
+            "updated-one": {"installed_sha": "a1b2c3d400000000000000000000000000000000"},
+            "unchanged": {"installed_sha": "a1b2c3d400000000000000000000000000000000"},
         }
         filtered = filter_skills(skills, installed)
         self.assertEqual(len(filtered), 2, "应保留 1 个新 + 1 个更新")
