@@ -1,0 +1,27 @@
+# Skill Forge 数据清单 —— 「部署/自更新不会带、因此必须保住」的用户状态。
+#
+# 格式：相对路径|一句话用途
+#
+# 这份清单被两个脚本共用：
+#   scripts/self-update.sh  从 GitHub 拉新版本覆盖本地时，靠它把数据搬出去再搬回来
+#   scripts/deploy.py       把开发副本同步到运行时目录时，靠它决定哪些**不许碰**
+#
+# 两处共用一份是有意的：以前"哪些算数据"散在流程里，改一处漏一处，
+# 结果就是自更新把 discover/ 和 .bridge-key 静默删掉。
+#
+# 加新文件时只问一句：**把它删了，用户会不会丢东西？**
+#   会  → 加到这里（并且去 .gitignore 看一眼要不要一并忽略）
+#   不会 → 别加，它是代码，跟着仓库走
+#
+# 以 / 结尾的是目录。
+
+sources.json|已安装 skill 的注册表。**丢了 = 不知道装过什么**，更新功能全废。自更新也靠里面 self:true 那条找自己。
+discover/|周度扫描的全部存档 weekly-*.json，以及生成好的面板 latest.html。**丢了 = 历史发现记录全没**，面板也没了。
+templates/install-queue.json|面板上标记的待安装队列。丢了 = 用户排好的队白排。
+templates/external_sources.json|用户自己加的外部数据源。丢了 = 要重新配一遍。
+templates/.bridge-key|bridge 的共享密钥。**丢了 = 所有已打开的面板立刻 403**，要重启 bridge 并重开面板。
+templates/.bridge-keys-prev.json|旧密钥的宽限期表。丢了 = 宽限期失效，旧面板当场失联。
+templates/translate-config.json|翻译后端配置（后端 / 模型 / 提示词）。丢了 = 要重新选一遍。
+daemon/last_scan.txt|上次扫描完成的时间戳。**丢了 = 立刻触发一轮新扫描**（要跑几十秒）。
+daemon/translation_cache.json|翻译缓存。丢了 = 下次扫描要重翻全部简介，很慢。
+daemon/watchdog.log|运行日志。丢了排不了历史故障，不影响功能。

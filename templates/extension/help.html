@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Skill Forge — 扩展说明</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --card: #16213e;
+    --edge: #0f3460;
+    --accent: #e94560;
+    --text: #e8e8f0;
+    --muted: #9191a8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 20px 64px;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.7 "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
+  section {
+    background: var(--card);
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 18px;
+  }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  ol { margin: 0; padding-left: 22px; }
+  li { margin-bottom: 10px; }
+  code, .mono {
+    font-family: Consolas, "Courier New", monospace;
+    background: rgba(255, 255, 255, .07);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    word-break: break-all;
+  }
+  .copyrow { display: flex; gap: 8px; align-items: stretch; margin-top: 10px; }
+  .copyrow input {
+    flex: 1;
+    min-width: 0;
+    background: rgba(0, 0, 0, .3);
+    border: 1px solid var(--edge);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: Consolas, monospace;
+    font-size: 13px;
+  }
+  button {
+    background: var(--accent);
+    border: 0;
+    color: #fff;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover { filter: brightness(1.1); }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .warn {
+    border-left: 3px solid var(--accent);
+    padding-left: 12px;
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 12px;
+  }
+  ul.plain { margin: 0; padding-left: 20px; }
+  ul.plain li { margin-bottom: 6px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Skill Forge 面板</h1>
+  <div class="sub">这个扩展只做一件事：把本地面板当成普通文件打开。它没有任何权限。</div>
+
+  <section>
+    <h2>点了图标没反应？还差一个开关</h2>
+    <p>浏览器默认不允许扩展打开 <span class="mono">file://</span> 本地文件，需要一个<strong>手动勾选</strong>的开关。这个开关<strong>没法由扩展申请</strong>，只能你自己开一次，之后一直有效。</p>
+    <ol>
+      <li>把下面这个地址复制到地址栏，回车：</li>
+    </ol>
+    <div class="copyrow">
+      <input id="ext-url" readonly value="edge://extensions">
+      <button id="copy-btn" type="button">复制</button>
+    </div>
+    <div class="hint" id="copy-hint">（也可直接在扩展列表里找到「Skill Forge 面板」）</div>
+    <ol start="2">
+      <li>点开「Skill Forge 面板」的<strong>「详细信息」</strong></li>
+      <li>把<strong>「允许访问文件 URL」</strong>打开<span class="hint">（不同浏览器版本文案略有出入，找带「文件」和「允许」的那一项即可）</span></li>
+      <li>回到工具栏，再点一次扩展图标 —— 面板就开了</li>
+    </ol>
+    <div class="warn">
+      红色「!」是<strong>上一次点击</strong>留下的记号，不是开关的实时状态 ——
+      浏览器不提供"开关被切换"的通知，扩展在结构上就感知不到你刚打开它。
+      所以：打开开关之后<strong>再点一次图标</strong>，面板就开了，记号也会消。
+    </div>
+  </section>
+
+  <section>
+    <h2>面板在哪</h2>
+    <p>扩展打开的是这个文件：</p>
+    <div class="copyrow">
+      <input id="panel-path" readonly value="__PANEL_PATH__">
+      <button id="copy-panel" type="button">复制</button>
+    </div>
+    <div class="hint" id="panel-hint">每次周度扫描都会覆盖它，所以扩展永远指向同一份最新数据。</div>
+    <div class="warn">
+      如果打开后提示找不到文件，说明还没跑过扫描 —— 面板是扫描的产物，
+      第一次需要先让守护进程跑一轮（见 <span class="mono">README.md</span> 的「首次运行」）。
+    </div>
+  </section>
+
+  <section>
+    <h2>为什么它什么权限都不要</h2>
+    <p>面板渲染的是从 GitHub 拉来的、别人写的描述文本。这类文本永远该被当作不受信输入 —— 面板内部已经有四层转义防线，但"防线很多"和"不可能被绕过"是两回事。</p>
+    <p>所以这里做了个取舍：</p>
+    <ul class="plain">
+      <li><strong>面板待在普通标签页里</strong>：万一有人靠描述文本突破了防线，最坏结果是"关掉一个本地网页"。</li>
+      <li><strong>面板要是待在扩展里</strong>：同一次突破会直接够到 <span class="mono">chrome.*</span> —— 能读你所有标签页、能用扩展身份发跨域请求、能改别的扩展。</li>
+    </ul>
+    <p class="hint">代价是每次打开会多一个标签页，而不是一个小弹窗。这个代价是故意付的。</p>
+  </section>
+
+  <section>
+    <h2>它不做什么</h2>
+    <ul class="plain">
+      <li>不读取任何网页内容</li>
+      <li>不注入脚本到任何页面</li>
+      <li>不联网（面板连本地 bridge 是面板自己的事，跟扩展无关）</li>
+      <li>不读取、不保存任何密钥 —— 密钥存在 Windows 凭据管理器里，全程不经过浏览器</li>
+    </ul>
+  </section>
+
+</div>
+<script src="help.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Skill Forge 面板",
+  "version": "1.0.0",
+  "description": "一键打开本地 Skill Forge 面板。零权限：不读取任何网页内容、不联网、不注入脚本。",
+  "action": {
+    "default_title": "打开 Skill Forge 面板"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "help.html",
+    "open_in_tab": true
+  }
+}

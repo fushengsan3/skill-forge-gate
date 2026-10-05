@@ -1,0 +1,58 @@
+# ⚠️ 这个文件里**不能写行内注释** —— `.gitignore` 没有那个语法，
+# `foo.txt  # 说明` 会被当成一个包含井号和空格的完整模式，什么也匹配不到。
+# 我自己在这上面栽过两次（daemon/last_scan.txt 那几行就是这么漏掉的）。
+# 注释一律单独成行。
+#
+# 这份清单和 scripts/data-paths.txt 是一对：
+#   data-paths.txt 说"哪些必须保住"
+#   .gitignore     说"哪些不要提交"
+# 加新数据文件时两边都要看一眼。
+
+# ---- 运行时产物：不在仓库里，也不该被自更新/deploy 覆盖 ----
+
+discover/
+extension/
+daemon/last_scan.txt
+daemon/watchdog.log
+daemon/translation_cache.json
+
+# ---- 密钥与个人配置：**绝不能提交** ----
+
+templates/.bridge-key
+templates/.bridge-keys-prev.json
+templates/translate-config.json
+.env
+*.pem
+*.key
+
+# ---- 测试留下的报告与产物 ----
+#
+# 这些是**过去那几轮**跑出来的工作记录，里面写着当时的绝对路径，
+# 而且是纯本地产物、随时可重生成。不发布。
+tests/*test-report.md
+tests/panel-test-output.html
+tests/_panel_*.html
+
+# ---- 依赖与缓存 ----
+
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# ---- 备份与暂存 ----
+
+.backup/
+.tmp/
+
+# ---- 编辑器 / 系统 ----
+
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+*.swp

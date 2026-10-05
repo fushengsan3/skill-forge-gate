@@ -1,0 +1,1645 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!--
+  R8 的第五层：外发信道闸门。
+
+  前四层（服务端转义 </、DOM API、URL 协议白名单、禁内联 on*）保证"不受信数据
+  不会变成可执行的代码"。这一层不保证那个 —— 面板自己要跑一大段内联脚本，
+  所以 script-src 必然要开 'unsafe-inline'。
+
+  它保的是**万一前四层被绕过之后，攻击者能拿这些东西干什么**：
+    - default-src 'none'  → 不许加载任何外部脚本/样式/图片/字体，
+                            于是没法把远端 payload 拉进来执行
+    - connect-src 只到本地 bridge → **没有外发信道**：
+                            密钥、已装列表、扫描结果都回不去攻击者的服务器
+    - base-uri / form-action 'none' → 堵掉"改 base 把相对 URL 指到别处"
+                            和"把数据塞进表单提交出去"这两条绕路
+
+  诚实地说清楚它**不能**做什么：XSS 仍然能调本地 bridge（那正是面板的用途），
+  所以仍然能触发 /uninstall。这一层掐的是"偷出去"，不是"本地破坏"。
+  本地破坏那一半要靠 daemon/safe_paths.py 的路径校验兜。
+
+  注：frame-ancestors 不写在 meta 里 —— 那个指令只在响应头里生效，
+  写在 meta 里会被浏览器忽略并打警告。
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src http://127.0.0.1:18970; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skill Forge — 本周发现</title>
+<style>
+/* ============ 全内联样式，零外部依赖 ============ */
+:root {
+  --bg: #1a1a2e; --bg-card: #16213e; --bg-input: #0f3460;
+  --text: #e0e0e0; --text-dim: #999; --primary: #667eea;
+  --secondary: #e94560; --accent: #f0c040; --border: #2a2a4a; --radius: 8px;
+  --source-jl: #4fc3f7; --source-gh: #f0c040; --source-cs: #ce93d8; --source-ext: #81c784; --source-search: #ff8a65;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+.container { max-width: 1040px; margin: 0 auto; padding: 24px 16px; }
+
+/* Header */
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+.header h1 { font-size: 28px; font-weight: 700; }
+.header p { color: var(--text-dim); font-size: 14px; margin-top: 4px; }
+.stats { display: flex; gap: 12px; background: var(--bg-card); border-radius: var(--radius); padding: 12px 16px; flex-wrap: wrap; }
+.stat { text-align: center; min-width: 60px; }
+.stat-title { font-size: 11px; color: var(--text-dim); }
+.stat-value { font-size: 22px; font-weight: 700; }
+.stat-value.new { color: var(--primary); }
+.stat-value.update { color: var(--secondary); }
+.stat-value.sources { color: var(--text-dim); font-size: 14px; }
+
+/* Toolbar */
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; align-items: center; }
+.toolbar select, .toolbar input { padding: 6px 10px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; outline: none; }
+.toolbar select:focus, .toolbar input:focus { border-color: var(--primary); }
+.toolbar input { flex: 1; min-width: 140px; max-width: 260px; }
+.lang-btn { padding: 5px 12px; border-radius: var(--radius); font-size: 12px; cursor: pointer; border: 1px solid var(--border); background: var(--bg-input); color: var(--text); font-weight: 600; transition: all 0.2s; }
+.lang-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.source-filter { display: flex; gap: 4px; flex-wrap: wrap; }
+.source-chip { padding: 3px 8px; border-radius: 12px; font-size: 11px; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text-dim); transition: all 0.15s; white-space: nowrap; }
+.source-chip.on { opacity: 1; color: #fff; }
+.source-chip.off { opacity: 0.4; }
+
+/* Cards */
+.grid { display: grid; gap: 12px; }
+.card { background: var(--bg-card); border-radius: var(--radius); padding: 16px; transition: transform 0.15s ease, box-shadow 0.15s ease; border-left: 3px solid transparent; }
+.card.source-jeremylongshore { border-left-color: var(--source-jl); }
+.card.source-github-topic { border-left-color: var(--source-gh); }
+.card.source-claudskills { border-left-color: var(--source-cs); }
+.card.source-external { border-left-color: var(--source-ext); }
+.card.source-search { border-left-color: var(--source-search); }
+.card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
+.card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.card-title { font-size: 17px; font-weight: 600; }
+.card-desc { font-size: 13px; color: var(--text-dim); margin-top: 4px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card-meta { display: flex; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--text-dim); align-items: center; flex-wrap: wrap; }
+.card-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.rating { font-size: 13px; font-weight: 600; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+
+/* Source-specific rating colors */
+.rating-jl { color: var(--source-jl); }
+.rating-gh { color: var(--source-gh); }
+.rating-cs { color: var(--source-cs); }
+.rating-ext { color: var(--source-ext); }
+
+/* Badges */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.badge-new { background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; }
+.badge-update { background: linear-gradient(135deg, #f093fb, #f5576c); color: #fff; }
+.badge-source { font-size: 10px; padding: 1px 6px; border-radius: 10px; }
+.badge-jl { background: rgba(79,195,247,0.2); color: var(--source-jl); border: 1px solid rgba(79,195,247,0.4); }
+.badge-gh { background: rgba(240,192,64,0.2); color: var(--source-gh); border: 1px solid rgba(240,192,64,0.4); }
+.badge-cs { background: rgba(206,147,216,0.2); color: var(--source-cs); border: 1px solid rgba(206,147,216,0.4); }
+.badge-ext { background: rgba(129,199,132,0.2); color: var(--source-ext); border: 1px solid rgba(129,199,132,0.4); }
+.badge-category { background: var(--bg-input); color: var(--text-dim); }
+/* R1：时间徽章。刻意用低饱和样式 —— 它是背景信息，不该和"新/更新"徽章抢注意力 */
+.badge-date { background: transparent; color: var(--text-dim); border: 1px solid var(--border); font-weight: 400; }
+
+/* Buttons */
+.btn { display: inline-block; padding: 6px 14px; border-radius: var(--radius); font-size: 13px; cursor: pointer; border: none; text-decoration: none; font-weight: 500; transition: opacity 0.15s; }
+.btn:hover { opacity: 0.85; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+.btn-disabled { background: #444; color: #888; cursor: not-allowed; opacity: 0.6; }
+.btn-sm { padding: 4px 10px; font-size: 11px; }
+
+.update-info { margin-top: 8px; padding: 8px; background: var(--bg-input); border-radius: var(--radius); font-size: 12px; }
+.update-info code { background: rgba(0,0,0,0.3); padding: 1px 4px; border-radius: 3px; }
+
+/* Empty state */
+.empty { text-align: center; padding: 60px 0; display: none; }
+.empty-icon { font-size: 64px; margin-bottom: 12px; }
+.empty p { color: var(--text-dim); }
+
+/* Queue badge */
+.queue-badge { position: fixed; bottom: 24px; right: 24px; display: none; }
+.queue-badge button { width: 48px; height: 48px; border-radius: 50%; background: var(--primary); color: #fff; border: none; font-size: 18px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(102,126,234,0.5); }
+.queue-badge.visible { display: block; }
+
+/* Toast */
+.toast-container { position: fixed; bottom: 80px; right: 24px; z-index: 999; }
+.toast { background: #4caf50; color: #fff; padding: 10px 16px; border-radius: var(--radius); margin-top: 8px; font-size: 14px; animation: fadeIn 0.3s; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+.toast small { opacity: 0.8; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* External sources panel */
+.ext-sources-panel { background: var(--bg-card); border-radius: var(--radius); padding: 16px; margin-bottom: 20px; display: none; }
+.ext-sources-panel.open { display: block; }
+.ext-sources-panel h3 { font-size: 16px; margin-bottom: 12px; }
+.ext-sources-panel .row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.ext-sources-panel input { flex: 1; padding: 6px 10px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; }
+.ext-sources-panel .source-list { max-height: 200px; overflow-y: auto; }
+.ext-sources-panel .source-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.ext-sources-panel .source-item .remove-btn { color: var(--secondary); cursor: pointer; background: none; border: none; font-size: 16px; }
+
+/* 已安装面板 */
+.installed-panel { background: var(--bg-card); border-radius: var(--radius); padding: 16px; margin-bottom: 20px; display: none; }
+.installed-panel.open { display: block; }
+.installed-panel h3 { font-size: 16px; margin: 0; }
+.installed-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.installed-item .name { font-weight: 500; color: var(--text); }
+.installed-item .meta { font-size: 11px; color: var(--text-dim); }
+.installed-item .sha { font-family: monospace; font-size: 11px; color: var(--primary); background: rgba(102,126,234,0.1); padding: 2px 6px; border-radius: 4px; }
+.installed-item .btn-uninstall { font-size: 11px; background: none; border: 1px solid var(--secondary); color: var(--secondary); border-radius: 4px; padding: 2px 8px; cursor: pointer; }
+.installed-item .btn-uninstall:hover { background: var(--secondary); color: #fff; }
+/* R4-a：名单来自嵌入快照、或压根取不到时的说明行 */
+.installed-note { color: var(--text-dim); font-size: 13px; text-align: center; padding: 20px; }
+.installed-note.stale { color: var(--accent); font-size: 11px; text-align: left; padding: 0 0 8px; }
+.installed-note.warn { color: var(--secondary); }
+
+/* R2：分组标题。单列 grid，所以标题直接作为一行即可 */
+.group-head { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.group-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.group-count { font-size: 11px; color: var(--text-dim); background: var(--bg-input); border-radius: 10px; padding: 1px 8px; }
+
+/* R3：期状态条 */
+.period-chip { font-size: 11px; color: var(--text-dim); background: var(--bg-input); border: 1px solid var(--border); border-radius: 12px; padding: 3px 10px; }
+.period-chip.frozen { color: var(--accent); border-color: var(--accent); background: transparent; cursor: pointer; }
+.period-chip.ready { color: #000; background: var(--accent); border-color: var(--accent); cursor: pointer; font-weight: 600; }
+.period-chip.dim { opacity: 0.6; }
+
+/* ============ R6/R9：设置弹窗 ============ */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.66); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+.modal-overlay.open { display: flex; }
+.modal { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 580px; max-height: 86vh; display: flex; flex-direction: column; box-shadow: 0 24px 64px rgba(0,0,0,0.55); }
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.modal-head h3 { font-size: 16px; margin: 0; }
+.modal-body { padding: 18px 20px; overflow-y: auto; }
+.modal-section { margin-bottom: 24px; }
+.modal-section > h4 { font-size: 11px; color: var(--text-dim); letter-spacing: 0.08em; margin: 0 0 10px; font-weight: 600; }
+.modal-foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+.modal-hint { font-size: 11px; color: var(--text-dim); line-height: 1.5; margin-top: 8px; }
+
+/* 后端选择 —— 卡片式单选 */
+.choice-row { display: flex; gap: 10px; }
+.choice { flex: 1; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; cursor: pointer; background: var(--bg-input); transition: all 0.15s; }
+.choice:hover { border-color: var(--primary); }
+.choice.active { border-color: var(--primary); background: rgba(102,126,234,0.12); box-shadow: inset 0 0 0 1px var(--primary); }
+.choice-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.choice-desc { font-size: 11px; color: var(--text-dim); margin-top: 5px; line-height: 1.5; }
+
+/* 模型选择 —— 用户要求"尽可能美观" */
+.model-list { display: flex; flex-direction: column; gap: 8px; }
+.model-card { display: flex; align-items: center; gap: 12px; border: 1px solid var(--border); border-radius: 10px; padding: 11px 14px; cursor: pointer; background: var(--bg-input); transition: transform 0.15s, border-color 0.15s, background 0.15s; }
+.model-card:hover { border-color: var(--primary); transform: translateX(3px); }
+.model-card.active { border-color: var(--primary); background: linear-gradient(135deg, rgba(102,126,234,0.16), rgba(118,75,162,0.16)); }
+.mc-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); flex: 0 0 auto; transition: all 0.15s; }
+.model-card.active .mc-dot { border-color: var(--primary); background: var(--primary); box-shadow: 0 0 0 3px rgba(102,126,234,0.22); }
+.mc-main { flex: 1; min-width: 0; }
+.mc-id { font-family: monospace; font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-tier { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+.mc-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; background: var(--accent); color: #000; font-weight: 600; flex: 0 0 auto; }
+.model-empty { font-size: 12px; color: var(--text-dim); padding: 14px; text-align: center; border: 1px dashed var(--border); border-radius: 10px; }
+
+/* 密钥状态行 */
+.secret-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+.secret-row:last-child { border-bottom: none; }
+.sr-main { flex: 1; min-width: 0; }
+.sr-name { font-size: 13px; color: var(--text); }
+.sr-sub { font-size: 11px; color: var(--text-dim); margin-top: 3px; line-height: 1.45; }
+.status-pill { font-size: 11px; padding: 2px 9px; border-radius: 10px; flex: 0 0 auto; }
+.status-pill.on { background: rgba(129,199,132,0.18); color: #81c784; border: 1px solid rgba(129,199,132,0.4); }
+.status-pill.off { background: rgba(233,69,96,0.14); color: var(--secondary); border: 1px solid rgba(233,69,96,0.35); }
+
+/* 提示词许可证标注 + 前提缺失警告 */
+.mc-license { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: var(--bg-input); color: var(--text-dim); border: 1px solid var(--border); flex: 0 0 auto; }
+.model-card.disabled { opacity: 0.45; cursor: not-allowed; }
+.model-card.disabled:hover { transform: none; border-color: var(--border); }
+.ai-warning { font-size: 12px; color: var(--accent); background: rgba(240,192,64,0.1); border: 1px solid rgba(240,192,64,0.35); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div>
+      <h1>🔧 Skill Forge</h1>
+      <p id="header-subtitle">本周发现</p>
+      <!-- R3：期状态条 —— 显示当前渲染的是哪一期、是否冻结、有没有新一期可推进 -->
+      <div id="period-bar" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="stat-title" data-lang="new_found">新发现</div><div class="stat-value new" id="stat-new">-</div></div>
+      <div class="stat"><div class="stat-title" data-lang="updatable">可更新</div><div class="stat-value update" id="stat-update">-</div></div>
+      <div class="stat"><div class="stat-title" data-lang="sources">数据源</div><div class="stat-value sources" id="stat-sources">-</div></div>
+    </div>
+  </div>
+
+  <!-- 语言切换 + 外部数据源 -->
+  <div class="toolbar" style="margin-bottom:12px">
+    <button class="lang-btn active" id="btn-zh">中</button>
+    <button class="lang-btn" id="btn-en">EN</button>
+    <button class="btn btn-ghost btn-sm" id="btn-installed" style="margin-left:6px">📦 <span data-lang="installed_skills">已安装</span> <span id="installed-count" style="background:var(--accent);color:#000;border-radius:10px;padding:0 6px;font-size:11px;display:none">0</span></button>
+    <button class="btn btn-ghost btn-sm" id="btn-freeze">📌 <span data-lang="freeze">冻结本期</span></button>
+    <button class="btn btn-ghost btn-sm" id="btn-settings">⚙️ <span data-lang="settings">设置</span></button>
+    <span style="flex:1"></span>
+    <button class="btn btn-ghost btn-sm" id="btn-ext-sources" data-lang="ext_sources">📂 外部数据源</button>
+    <button class="btn btn-ghost btn-sm" id="btn-source-filters" data-lang="filter_sources">🔍 数据源筛选</button>
+  </div>
+
+  <!-- 外部数据源管理面板 -->
+  <div class="ext-sources-panel" id="ext-sources-panel">
+    <h3 data-lang="ext_sources_title">外部数据源管理</h3>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px" data-lang="ext_sources_desc">添加 GitHub 仓库或 JSON API 地址以引入更多 skill 数据</p>
+    <div class="row">
+      <input type="text" id="ext-url" placeholder="https://github.com/owner/repo 或 API URL">
+      <input type="text" id="ext-label" placeholder="标签（可选）" style="max-width:140px">
+      <button class="btn btn-primary btn-sm" id="btn-add-source" data-lang="add">添加</button>
+    </div>
+    <div class="source-list" id="ext-source-list"></div>
+    <div style="margin-top:12px;font-size:12px;color:var(--text-dim)">
+      <span data-lang="ext_sources_file">配置文件：</span><code>templates/external_sources.json</code>
+      <button class="btn btn-ghost btn-sm" id="btn-save-sources" style="margin-left:8px" data-lang="save">💾 保存</button>
+      <button class="btn btn-ghost btn-sm" id="btn-fetch-sources" data-lang="fetch_now">🔄 立即拉取</button>
+    </div>
+  </div>
+
+  <!-- 已安装 Skill 面板 -->
+  <div class="installed-panel" id="installed-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 data-lang="installed_skills">📦 已安装的 Skill</h3>
+      <button class="btn btn-ghost btn-sm" id="btn-close-installed" style="font-size:18px">✕</button>
+    </div>
+    <div id="installed-list" style="max-height:400px;overflow-y:auto">
+      <div style="color:var(--text-dim);font-size:13px;text-align:center;padding:20px" data-lang="loading">加载中...</div>
+    </div>
+  </div>
+
+  <!-- 数据源筛选条 -->
+  <div class="source-filter" id="source-filters" style="display:none;margin-bottom:12px"></div>
+
+  <!-- 主筛选 -->
+  <div class="toolbar">
+    <select id="filter-category"><option value="all" data-lang-opt="all_cat">全部分类</option></select>
+    <select id="filter-status">
+      <option value="all" data-lang-opt="all_status">全部状态</option>
+      <option value="new">🆕 <span data-lang-opt="new_skill">新 skill</span></option>
+      <option value="update_available">🔄 <span data-lang-opt="update_skill">有更新</span></option>
+    </select>
+    <select id="filter-sort">
+      <option value="score" data-lang-opt="sort_score">按综合评分</option>
+      <option value="stars" data-lang-opt="sort_stars">按 Star 数</option>
+    </select>
+    <input type="text" id="search-input" data-lang-placeholder="search_placeholder">
+  </div>
+
+  <div class="grid" id="skills-grid"></div>
+  <div class="empty" id="empty-state">
+    <div class="empty-icon">📭</div>
+    <p style="font-size:18px;color:var(--text-dim)" data-lang="no_results">本周无新发现</p>
+    <p style="font-size:14px;color:var(--text-dim);margin-top:4px" data-lang="no_updates">所有 skill 均无可用更新</p>
+  </div>
+</div>
+
+<div class="queue-badge" id="queue-badge">
+  <button id="btn-queue"><span id="queue-count">0</span></button>
+</div>
+<div class="toast-container" id="toast-container"></div>
+
+<!-- ============ R6/R9：设置弹窗 ============ -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>⚙️ <span data-lang="settings">设置</span></h3>
+      <button class="btn btn-ghost btn-sm" id="btn-close-settings" style="font-size:18px">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <div class="modal-section">
+        <h4 data-lang="sec_translate">翻译后端</h4>
+        <div class="choice-row" id="backend-choices"></div>
+        <div class="modal-hint" data-lang="translate_hint"></div>
+      </div>
+
+      <div class="modal-section" id="ai-section">
+        <div class="ai-warning" id="ai-warning" style="display:none"></div>
+
+        <h4 data-lang="sec_model">AI 模型</h4>
+        <div class="model-list" id="model-list"></div>
+        <div class="modal-hint" data-lang="model_hint"></div>
+
+        <h4 style="margin-top:18px" data-lang="sec_prompt">翻译提示词</h4>
+        <div class="model-list" id="prompt-list"></div>
+        <div class="modal-hint" data-lang="prompt_hint"></div>
+      </div>
+
+      <div class="modal-section">
+        <h4 data-lang="sec_keys">密钥</h4>
+        <div id="secret-rows"></div>
+        <div class="modal-hint" data-lang="keys_hint"></div>
+      </div>
+
+    </div>
+    <div class="modal-foot">
+      <span style="flex:1"></span>
+      <button class="btn btn-ghost btn-sm" id="btn-settings-close2" data-lang="close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// 数据注入
+// ============================================================
+const DISCOVER_DATA = /* __DATA_PLACEHOLDER__ */;
+
+// ---- R2/R3：历史各期 ----
+// daemon 把历史拆成两层发过来（见 daemon/periods.py）：
+//   _catalog    每个 skill 的重字段（描述、URL…）只存一份
+//   _periods    每期只存轻量易变的字段（stars / score / status / updated_at…）
+// 因为同一个 skill 平均会在 6.4 期里重复出现，全量嵌入会让页面随周数线性膨胀。
+// 这里按需合并回完整记录。
+const PERIODS       = DISCOVER_DATA._periods || [];
+const CATALOG       = DISCOVER_DATA._catalog || {};
+const FIRST_SEEN    = DISCOVER_DATA._first_seen || {};
+const PERIODS_TOTAL = DISCOVER_DATA._periods_total || PERIODS.length;
+
+// 滞后设置（R3）的指针：面板"冻结"在哪一期。
+// 存 localStorage 而不是磁盘 —— 决策记录 §3.3 明确否决了"走 bridge 存文件"，
+// 那会把新功能绑死在当时正要修的那个坏组件上。
+const PERIOD_KEY = 'skill-forge-frozen-period';
+
+// ============================================================
+// 多语言文本
+// ============================================================
+const LANG = {
+  zh: {
+    new_found: '新发现', updatable: '可更新', sources: '数据源',
+    all_cat: '全部分类', all_status: '全部状态', new_skill: '新 skill', update_skill: '有更新',
+    sort_score: '按综合评分', sort_stars: '按 Star 数', search_placeholder: '搜索...',
+    no_results: '本周无新发现', no_updates: '所有 skill 均无可用更新',
+    ext_sources: '📂 外部数据源', filter_sources: '🔍 数据源筛选', add: '添加', save: '💾 保存', fetch_now: '🔄 立即拉取',
+    ext_sources_title: '外部数据源管理', ext_sources_desc: '添加 GitHub 仓库或 JSON API 地址以引入更多 skill 数据',
+    ext_sources_file: '配置文件：',
+    view_detail: '查看详情', install_btn: '📦 一键安装', update_btn: '🔄 更新', queued: '已加入队列 ✓',
+    install_toast: '已加入安装队列', install_hint: '下次启动 Claude Code 时将提示安装',
+    sort_by: '排序', filter_by: '筛选',
+    source_jeremylongshore: '社区精选', source_github_topic: 'GitHub Topic',
+    source_claudskills: 'ClaudSkills', source_external: '外部源', source_search: '搜索',
+    rating_stars: '星', rating_score: '分', rating_quality: '质量',
+    translate: '翻译', week_report: '周度发现报告', year: '年', month: '月', day: '日',
+    verified: '来源可信', unverified: '来源未知', pending_check: '待预检',
+    installed_skills: '已安装', loading: '加载中...', none_installed: '暂无已安装的 Skill', uninstall: '卸载',
+    installed_stale: 'Bridge 未运行 —— 以下是上次扫描时嵌入的快照，可能不是最新的',
+    installed_offline: 'Bridge 未运行，且页面里没有嵌入的名单',
+    uninstall_offline: 'Bridge 未运行，无法卸载。启动 Bridge 后再试。',
+    // R2 分组 + R3 滞后
+    scan_period: '扫描期', this_scan: '本期新增', earlier: '更早发现',
+    first_seen: '首次发现', published: '发布', last_push: '最近推送', upstream_changed: '上游变更',
+    freeze: '冻结本期', frozen: '📌 已冻结', unfrozen_hint: '点击解冻，跟随最新一期',
+    new_period_ready: '有新一期', advance: '推进到下一期', periods_truncated: '更早的 {n} 期未收录',
+    // R6/R9 设置
+    settings: '设置', close: '关闭',
+    sec_translate: '翻译后端', sec_model: 'AI 模型', sec_keys: '密钥',
+    backend_google: 'Google 翻译', backend_google_desc: '免费，无需密钥。当前默认。',
+    backend_ai: 'AI 模型', backend_ai_desc: '质量更好，按量计费。需要 AI 密钥。',
+    translate_hint: 'AI 后端会把描述发给所选模型翻译，仅在 Google 不可用或需要更专业的术语处理时使用。',
+    model_hint: '模型清单读取自你的 Claude Code 配置（~/.claude/settings.json）。',
+    model_current: '当前使用', model_none: '读不到模型清单',
+    keys_hint: '密钥存放在 Windows 凭据管理器，由系统按当前用户加密。它不会经过这个页面。',
+    key_github: 'GitHub 令牌', key_github_sub: '解开 API 限流：60 次/小时 → 5000 次/小时',
+    key_ai: 'AI 密钥', key_ai_sub: '供 AI 翻译后端使用',
+    key_set: '设置', key_clear: '清除', key_configured: '已配置', key_missing: '未配置',
+    key_opened: '已弹出输入框，请在窗口中输入', key_cancelled: '已取消', key_stored: '已保存到凭据管理器',
+    key_deleted: '已清除', key_busy: '已有一个输入框开着',
+    sec_prompt: '翻译提示词', prompt_none: '没有可用的提示词',
+    prompt_hint: '提示词就是发给模型的系统指令。署名后标注的是它的许可证 —— 第三方提示词只有许可明确时才能内置。',
+    prompt_missing: '该提示词文件缺失',
+    settings_saved: '设置已保存', settings_need_bridge: 'Bridge 未运行，设置无法保存（保存了也不会生效）',
+    ai_need_key: '⚠ 还未配置 AI 密钥，AI 后端暂时用不了 —— 请先在下方"密钥"里设置。',
+    ai_need_model: '⚠ 还没有选择模型。',
+    category_labels: {
+      '前端开发':'前端开发','后端开发':'后端开发','DevOps':'DevOps','代码质量':'代码质量',
+      '文档写作':'文档写作','工作流':'工作流','安全审计':'安全审计','数据科学':'数据科学','其他':'其他'
+    }
+  },
+  en: {
+    new_found: 'New', updatable: 'Updates', sources: 'Sources',
+    all_cat: 'All Categories', all_status: 'All Status', new_skill: 'New skill', update_skill: 'Has Update',
+    sort_score: 'By Score', sort_stars: 'By Stars', search_placeholder: 'Search...',
+    no_results: 'Nothing new this week', no_updates: 'All skills are up to date',
+    ext_sources: '📂 External Sources', filter_sources: '🔍 Source Filter', add: 'Add', save: '💾 Save', fetch_now: '🔄 Fetch',
+    ext_sources_title: 'External Data Sources', ext_sources_desc: 'Add GitHub repos or JSON API URLs to import more skills',
+    ext_sources_file: 'Config:',
+    view_detail: 'View', install_btn: '📦 Install', update_btn: '🔄 Update', queued: 'Queued ✓',
+    install_toast: 'Added to queue', install_hint: 'Will prompt install on next Claude Code launch',
+    sort_by: 'Sort', filter_by: 'Filter',
+    source_jeremylongshore: 'Curated', source_github_topic: 'GitHub Topic',
+    source_claudskills: 'ClaudSkills', source_external: 'External', source_search: 'Search',
+    rating_stars: 'stars', rating_score: 'score', rating_quality: 'quality',
+    translate: 'Translate', week_report: 'Weekly Discovery Report', year: '-', month: '-', day: '',
+    verified: 'Trusted source', unverified: 'Unknown source', pending_check: 'Not checked yet',
+    installed_skills: 'Installed', loading: 'Loading...', none_installed: 'No installed skills', uninstall: 'Uninstall',
+    installed_stale: 'Bridge not running — showing the snapshot embedded at last scan; it may be out of date',
+    installed_offline: 'Bridge not running, and no snapshot is embedded in this page',
+    uninstall_offline: 'Bridge not running, cannot uninstall. Start the bridge and try again.',
+    // R2 groups + R3 lag
+    scan_period: 'Scan period', this_scan: 'New this scan', earlier: 'Found earlier',
+    first_seen: 'First seen', published: 'Published', last_push: 'Last push', upstream_changed: 'Upstream change',
+    freeze: 'Freeze this period', frozen: '📌 Frozen', unfrozen_hint: 'Click to unfreeze and follow the latest',
+    new_period_ready: 'New period available', advance: 'Advance to next period', periods_truncated: '{n} older periods not included',
+    settings: 'Settings', close: 'Close',
+    sec_translate: 'Translation backend', sec_model: 'AI model', sec_keys: 'Credentials',
+    backend_google: 'Google Translate', backend_google_desc: 'Free, no key needed. Current default.',
+    backend_ai: 'AI model', backend_ai_desc: 'Better quality, pay per use. Needs an AI key.',
+    translate_hint: 'The AI backend sends descriptions to the selected model. Use it when Google is unavailable or you need better technical terminology.',
+    model_hint: 'The model list is read from your Claude Code config (~/.claude/settings.json).',
+    model_current: 'in use', model_none: 'No models found',
+    keys_hint: 'Keys live in Windows Credential Manager, encrypted per-user by the OS. They never pass through this page.',
+    key_github: 'GitHub token', key_github_sub: 'Lifts the API limit: 60/hr → 5000/hr',
+    key_ai: 'AI key', key_ai_sub: 'Used by the AI translation backend',
+    key_set: 'Set', key_clear: 'Clear', key_configured: 'Configured', key_missing: 'Not set',
+    key_opened: 'Input dialog opened — type in the window', key_cancelled: 'Cancelled', key_stored: 'Saved to Credential Manager',
+    key_deleted: 'Cleared', key_busy: 'A dialog is already open',
+    sec_prompt: 'Translation prompt', prompt_none: 'No prompts available',
+    prompt_hint: 'A prompt is the system instruction sent to the model. The licence is shown next to each — third-party prompts are only bundled when their licence allows it.',
+    prompt_missing: 'Prompt file missing',
+    settings_saved: 'Settings saved', settings_need_bridge: 'Bridge not running — settings cannot be saved (and would not take effect)',
+    ai_need_key: '⚠ No AI key yet, so the AI backend cannot run. Set one under Credentials below.',
+    ai_need_model: '⚠ No model selected yet.',
+    category_labels: {
+      '前端开发':'Frontend','后端开发':'Backend','DevOps':'DevOps','代码质量':'Code Quality',
+      '文档写作':'Documentation','工作流':'Workflow','安全审计':'Security Audit','数据科学':'Data Science','其他':'Other'
+    }
+  }
+};
+
+let currentLang = 'zh';
+
+function t(key) {
+  var cat = LANG[currentLang].category_labels;
+  if (cat && cat[key]) return cat[key];
+  return LANG[currentLang][key] || key;
+}
+
+function setLang(lang) {
+  currentLang = lang;
+  document.getElementById('btn-zh').classList.toggle('active', lang === 'zh');
+  document.getElementById('btn-en').classList.toggle('active', lang === 'en');
+  applyLang();
+  // 期状态条是 JS 拼出来的，扫不到 data-lang，得手动重建
+  renderPeriodBar(PERIODS.length ? PERIODS[currentIndex()] : null);
+  renderSkills();
+}
+
+function applyLang() {
+  document.querySelectorAll('[data-lang]').forEach(el => {
+    var key = el.getAttribute('data-lang');
+    if (el.tagName === 'OPTION' && el.hasAttribute('data-lang-opt')) {
+      // handled in renderSkills
+    } else if (el.tagName === 'INPUT' && el.hasAttribute('data-lang-placeholder')) {
+      el.placeholder = t(el.getAttribute('data-lang-placeholder'));
+    } else {
+      el.textContent = t(key);
+    }
+  });
+  // Update optgroup labels
+  document.querySelectorAll('[data-lang-opt]').forEach(el => {
+    var key = el.getAttribute('data-lang-opt');
+    var span = el.querySelector('span');
+    if (span) span.textContent = t(key);
+    else el.textContent = t(key);
+  });
+}
+
+// ============================================================
+// 数据源定义 — 不同来源不同评级体系
+// ============================================================
+const SOURCE_CONFIG = {
+  'jeremylongshore': { label: '社区精选', icon: '🔷', color: 'jl', ratingLabel: '质量分', ratingFn: function(s) { return (s.score || 0).toFixed(0); } },
+  'github-topic':    { label: 'GitHub', icon: '⭐', color: 'gh', ratingLabel: 'Star', ratingFn: function(s) { return (s.stars || 0).toLocaleString(); } },
+  'claudskills':     { label: 'ClaudSkills', icon: '📊', color: 'cs', ratingLabel: '质量分', ratingFn: function(s) { return (s.qualityScore || s.score || 0).toFixed(0); } },
+  'external':        { label: '外部源', icon: '📡', color: 'ext', ratingLabel: '评分', ratingFn: function(s) { return (s.score || s.stars || 0).toFixed(0); } },
+  'search':          { label: '搜索', icon: '🔍', color: 'search', ratingLabel: '匹配', ratingFn: function(s) { return ((s.match_score || 0) * 100).toFixed(0) + '%'; } }
+};
+
+// ============================================================
+// 状态
+// ============================================================
+const BRIDGE_URL = 'http://127.0.0.1:18970/';
+// 与 bridge 约定的共享密钥，由 daemon 生成面板时注入（见 daemon/bridge_auth.py）。
+// 未注入时是 null —— 此时对 bridge 的请求会被拒，面板降级但不报语法错。
+const BRIDGE_KEY = /* __BRIDGE_KEY__ */ null;
+
+// 所有对 bridge 的请求都走这里，保证密钥不会在某个调用点上被漏掉
+function bridgeFetch(path, options) {
+  var opts = options || {};
+  var headers = Object.assign({'X-Skill-Forge-Key': BRIDGE_KEY}, opts.headers || {});
+  opts.headers = headers;
+  return fetch(BRIDGE_URL + (path || ''), opts);
+}
+let installQueue = [];
+let installedSkills = new Set();
+let allSkills = [];
+let bridgeAvailable = false;
+let activeSourceFilters = {};
+let externalSources = [];
+
+// ============================================================
+// 期（period）—— R2 分组 + R3 冻结
+// ============================================================
+let frozenDate = null;   // null = 不冻结，始终跟随最新一期
+
+function latestIndex() { return PERIODS.length - 1; }
+
+function periodIndexOf(date) {
+  for (var i = 0; i < PERIODS.length; i++) if (PERIODS[i].date === date) return i;
+  return -1;
+}
+
+// 当前该渲染第几期
+function currentIndex() {
+  if (frozenDate) {
+    var i = periodIndexOf(frozenDate);
+    if (i >= 0) return i;
+    // 冻结的那期可能因为 MAX_PERIODS 被截掉了。回落最新，
+    // 并清掉这个已经指不到东西的指针 —— 否则面板会装作还冻着。
+    frozenDate = null;
+    saveFrozen();
+  }
+  return latestIndex();
+}
+
+function saveFrozen() {
+  try {
+    if (frozenDate) localStorage.setItem(PERIOD_KEY, frozenDate);
+    else localStorage.removeItem(PERIOD_KEY);
+  } catch (e) { /* 隐私模式等场景下 localStorage 不可用，降级为"本次会话有效" */ }
+}
+
+function loadFrozen() {
+  try { frozenDate = localStorage.getItem(PERIOD_KEY) || null; }
+  catch (e) { frozenDate = null; }
+}
+
+// 把「去重目录 + 本期轻字段」合并回完整记录
+function materialize(period) {
+  var out = [];
+  if (!period) return out;
+  for (var name in period.items) {
+    if (!period.items.hasOwnProperty(name)) continue;
+    var rec = Object.assign({}, CATALOG[name] || {}, period.items[name]);
+    if (!rec.name) rec.name = name;
+    rec._firstSeen = FIRST_SEEN[name] || period.date;
+    // R2 的分组依据：首次发现就是本期的 → 本期新增。
+    // 用"首次出现在哪一期"而不是"距今天数"，所以跳周也不会说谎。
+    rec._isNew = (rec._firstSeen === period.date);
+    out.push(rec);
+  }
+  return out;
+}
+
+// 兼容只带 categories 的旧格式载荷（早期产物、以及测试注入的都是这个形状）
+function legacySkills() {
+  var out = [];
+  var cats = DISCOVER_DATA.categories || {};
+  for (var cat in cats) {
+    if (!cats.hasOwnProperty(cat)) continue;
+    for (var i = 0; i < cats[cat].length; i++) {
+      var s = Object.assign({}, cats[cat][i]);
+      s._category = cat;
+      s._isNew = true;       // 没有历史可依据，一律当作本期
+      s._firstSeen = null;
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+function flattenData() {
+  var period = PERIODS.length ? PERIODS[currentIndex()] : null;
+  allSkills = period ? materialize(period) : legacySkills();
+
+  var catSet = {}, sourceSet = {};
+  for (var i = 0; i < allSkills.length; i++) {
+    var s = allSkills[i];
+    var c = s.category || s._category || '其他';
+    s._category = c;
+    // 确保 score 存在（修复排序失效）
+    if (s.score == null) {
+      s.score = (s.stars || 0) * 0.7 + (s.installs || s.downloads || 0) * 0.3;
+    }
+    // 规范化 source 字段
+    if (!s.source) s.source = 'github-topic';
+    catSet[c] = true;
+    sourceSet[s.source] = true;
+  }
+
+  // 填充分类下拉。
+  // 换期后分类集合可能不同，所以先清空重建；但尽量保住用户已选的分类。
+  var sel = document.getElementById('filter-category');
+  var prevCat = sel.value;
+  sel.innerHTML = '';
+  var optAll = document.createElement('option');
+  optAll.value = 'all';
+  optAll.textContent = t('all_cat');
+  sel.appendChild(optAll);
+  for (var c2 in catSet) {
+    if (!catSet.hasOwnProperty(c2)) continue;
+    var opt = document.createElement('option');
+    opt.value = c2; opt.textContent = c2;
+    sel.appendChild(opt);
+  }
+  sel.value = catSet[prevCat] ? prevCat : 'all';
+
+  // 初始化数据源筛选
+  activeSourceFilters = {};
+  for (var src in sourceSet) {
+    if (!sourceSet.hasOwnProperty(src)) continue;
+    activeSourceFilters[src] = true;
+  }
+  buildSourceFilters();
+
+  var p = period || DISCOVER_DATA;
+  document.getElementById('stat-new').textContent = p.new_count || 0;
+  document.getElementById('stat-update').textContent = p.update_count || 0;
+  document.getElementById('stat-sources').textContent = Object.keys(sourceSet).length;
+
+  renderPeriodBar(period);
+}
+
+// R3 的状态条：当前是哪一期 / 是否冻结 / 有没有新一期
+function renderPeriodBar(period) {
+  var bar = document.getElementById('period-bar');
+  if (!bar) return;
+  bar.innerHTML = '';
+
+  var sub = document.getElementById('header-subtitle');
+  if (!period) {
+    // 旧格式载荷：没有期信息，退回"周度发现报告 · 日期"这种笼统说法，不编一个期出来
+    var today = new Date();
+    if (sub) {
+      sub.textContent = t('week_report') + ' · ' + today.getFullYear() + t('year')
+        + (today.getMonth() + 1) + t('month') + today.getDate() + t('day');
+    }
+    return;
+  }
+  if (sub) sub.textContent = t('scan_period') + ' · ' + period.date;
+
+  var chip = mkEl('span', 'period-chip', '🕒 ' + period.date);
+  if (period.generated) chip.title = String(period.generated);
+  bar.appendChild(chip);
+
+  if (frozenDate) {
+    var fr = mkEl('button', 'period-chip frozen', t('frozen'));
+    fr.title = t('unfrozen_hint');
+    fr.addEventListener('click', unfreezePeriod);
+    bar.appendChild(fr);
+  }
+
+  var idx = currentIndex();
+  if (idx < latestIndex()) {
+    var next = PERIODS[idx + 1];
+    var adv = mkEl('button', 'period-chip ready',
+      '🔔 ' + t('new_period_ready') + '（' + next.date + '）· ' + t('advance'));
+    adv.addEventListener('click', advancePeriod);
+    bar.appendChild(adv);
+  }
+
+  // 被 MAX_PERIODS 截掉的期要如实说 —— 不能让人以为存档只有这么多
+  var hidden = PERIODS_TOTAL - PERIODS.length;
+  if (hidden > 0) {
+    bar.appendChild(mkEl('span', 'period-chip dim',
+      t('periods_truncated').replace('{n}', hidden)));
+  }
+}
+
+function freezePeriod() {
+  var period = PERIODS[currentIndex()];
+  if (!period) return;
+  frozenDate = period.date;
+  saveFrozen();
+  flattenData();
+  renderSkills();
+  showToast('📌 ' + t('scan_period') + ' ' + frozenDate);
+}
+
+function unfreezePeriod() {
+  frozenDate = null;
+  saveFrozen();
+  flattenData();
+  renderSkills();
+}
+
+function advancePeriod() {
+  var idx = currentIndex();
+  if (idx >= latestIndex()) return;
+  if (idx + 1 === latestIndex()) {
+    // 推进到最新一期 == 追上进度，冻结自动解除
+    frozenDate = null;
+  } else {
+    frozenDate = PERIODS[idx + 1].date;
+  }
+  saveFrozen();
+  flattenData();
+  renderSkills();
+}
+
+
+function buildSourceFilters() {
+  var container = document.getElementById('source-filters');
+  container.innerHTML = '';
+  var allSources = {};
+  for (var i = 0; i < allSkills.length; i++) {
+    allSources[allSkills[i].source] = true;
+  }
+  for (var src in allSources) {
+    if (!allSources.hasOwnProperty(src)) continue;
+    var cfg = SOURCE_CONFIG[src] || { label: src, icon: '📦', color: 'ext' };
+    var chip = document.createElement('span');
+    chip.className = 'source-chip on';
+    chip.setAttribute('data-source', src);
+    chip.style.setProperty('--chip-color', 'var(--source-' + cfg.color + ')');
+    chip.textContent = cfg.icon + ' ' + (LANG[currentLang]['source_' + src] || cfg.label);
+    chip.onclick = function() { toggleSource(this.getAttribute('data-source')); };
+    container.appendChild(chip);
+  }
+}
+
+function toggleSource(src) {
+  activeSourceFilters[src] = !activeSourceFilters[src];
+  document.querySelectorAll('.source-chip[data-source="' + src + '"]').forEach(function(c) {
+    c.classList.toggle('on', activeSourceFilters[src]);
+    c.classList.toggle('off', !activeSourceFilters[src]);
+  });
+  renderSkills();
+}
+
+function toggleSourceFilters() {
+  var el = document.getElementById('source-filters');
+  el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+  if (el.style.display === 'flex') buildSourceFilters();
+}
+
+// ============================================================
+// 外部数据源管理
+// ============================================================
+function toggleInstalled() {
+  var panel = document.getElementById('installed-panel');
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) loadInstalled();
+}
+
+// ============================================================
+// 已安装名单（R4-a）—— 先吃页面里嵌的那份，再向 bridge 要新的
+// ============================================================
+// daemon 生成页面时会把名单嵌进 DISCOVER_DATA._installed（见 daemon/installed.py），
+// 它和 bridge 的 GET /installed 由**同一个函数**产出同一形状，所以下面只有一条渲染路径。
+//
+// 这样 bridge 停掉时名单照样在屏幕上 —— 新鲜度的下限从"bridge 是否恰好活着"
+// 变成"上次扫描是什么时候"，这才是修掉"Bridge 未运行，无法加载安装列表"的正题。
+// 本地已知的名单：**内存里拿到过的实时数据优先，其次才是页面里嵌的快照**。
+// 次序很重要：装完一个 skill 后内存里是新名单，而页面里嵌的仍是旧的。
+// 若这时 bridge 挂掉再开面板，用旧的当种子会让列表从新倒退回旧 —— 显示的新鲜度
+// 必须单调不回退，所以内存那份永远压过快照。
+let latestInstalled = null;
+
+function localInstalled() {
+  if (latestInstalled) return latestInstalled;
+  var list = DISCOVER_DATA._installed;
+  return Object.prototype.toString.call(list) === '[object Array]' ? list : null;
+}
+
+// 只负责画列表本体。stale=true 时顶部加一行说明：这份数据不是实时的。
+function renderInstalledList(skills, stale) {
+  var list = document.getElementById('installed-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  if (!skills.length) {
+    list.appendChild(mkEl('div', 'installed-note', t('none_installed')));
+    return;
+  }
+
+  // R8-2 + R8-4：DOM 构建 + 监听器。
+  // 已装 skill 的名字来自被克隆仓库的目录名，是攻击者可控的存储型注入点。
+  var frag = document.createDocumentFragment();
+  if (stale) frag.appendChild(mkEl('div', 'installed-note stale', '⚠ ' + t('installed_stale')));
+
+  skills.forEach(function(s) {
+    var item = mkEl('div', 'installed-item');
+    var box = mkEl('div');
+    box.appendChild(mkEl('span', 'name', '📦 ' + (s.name || '')));
+    if (s.installed_sha) {
+      box.appendChild(document.createTextNode(' '));
+      box.appendChild(mkEl('span', 'sha', s.installed_sha));
+    }
+    box.appendChild(mkEl('div', 'meta',
+      (s.installed_at ? String(s.installed_at).slice(0, 10) : '') + ' · ' + (s.type || '')));
+    item.appendChild(box);
+
+    var unBtn = mkEl('button', 'btn-uninstall', '✕');
+    unBtn.title = t('uninstall');
+    unBtn.addEventListener('click', function() { uninstallSkill(s.name); });
+    item.appendChild(unBtn);
+
+    frag.appendChild(item);
+  });
+  list.appendChild(frag);
+}
+
+// 把一份名单灌进页面状态：角标、卡片上的"已安装"标记、列表本体
+function applyInstalled(skills, stale) {
+  skills = skills || [];
+  // 只把实时数据记成"最新的"；快照本身就是旧的那份
+  if (!stale) latestInstalled = skills;
+  installedSkills = new Set(skills.map(function(s) { return s.name; }));
+  updateInstalledCount(skills.length);
+  renderInstalledList(skills, !!stale);
+  renderSkills();  // 卡片上的安装状态跟着刷新
+}
+
+function loadInstalled() {
+  // 先用本地已知的名单铺上：面板立刻有内容，不必先闪一下"加载中"
+  var embedded = localInstalled();
+  if (embedded) applyInstalled(embedded, true);
+
+  bridgeFetch('installed')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.ok || !data.skills) throw new Error('malformed /installed response');
+      applyInstalled(data.skills, false);   // 拿到了实时的，就去掉"快照"提示
+    })
+    .catch(function() {
+      // 取不到就保持已渲染的嵌入名单。只有在页面里连名单都没有时，才需要解释原因。
+      if (!embedded) {
+        applyInstalled([], false);
+        var list = document.getElementById('installed-list');
+        if (list) {
+          list.innerHTML = '';
+          list.appendChild(mkEl('div', 'installed-note warn', t('installed_offline')));
+        }
+      }
+    });
+}
+
+function updateInstalledCount(n) {
+  var el = document.getElementById('installed-count');
+  el.textContent = n;
+  el.style.display = n > 0 ? 'inline' : 'none';
+}
+
+function uninstallSkill(name) {
+  var msg = (currentLang === 'zh' ? '确定要卸载 ' : 'Uninstall ') + name + '?';
+  if (!confirm(msg)) return;
+  bridgeFetch('uninstall', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({name: name})
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.ok) { loadInstalled(); showToast('✅ ' + name + ' ' + (currentLang === 'zh' ? '已卸载' : 'uninstalled')); }
+      else { showToast('⚠ ' + (currentLang === 'zh' ? '卸载失败：' : 'Failed: ') + (res.error || 'unknown')); }
+    })
+    // R4-d：卸载是真的要动文件系统的操作，bridge 不在线时**只能**明说做不到。
+    // 不能像显示名单那样"降级用快照"——名单可以是旧的，卸载不能是假的。
+    .catch(function() { showToast('⚠ ' + t('uninstall_offline')); });
+}
+
+// 页面加载时：先用嵌入名单点亮角标和卡片标记，再后台向 bridge 要一次更新
+function initInstalled() {
+  var embedded = localInstalled();
+  if (embedded) applyInstalled(embedded, true);
+
+  bridgeFetch('installed')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok && data.skills) applyInstalled(data.skills, false);
+    })
+    .catch(function() {});   // 失败无所谓：嵌入名单已经在屏幕上了
+}
+
+function toggleExtSources() {
+  var panel = document.getElementById('ext-sources-panel');
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) loadExtSources();
+}
+
+function loadExtSources() {
+  try {
+    var stored = localStorage.getItem('skill-forge-ext-sources');
+    externalSources = stored ? JSON.parse(stored) : [];
+  } catch(e) { externalSources = []; }
+  renderExtSourceList();
+}
+
+function renderExtSourceList() {
+  var list = document.getElementById('ext-source-list');
+  if (externalSources.length === 0) {
+    list.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:8px" data-lang="no_ext_sources">暂无外部数据源</div>';
+    return;
+  }
+  // R8-2 + R8-4：DOM 构建 + 监听器（此数据来自 localStorage，属 self-XSS 面）
+  list.innerHTML = '';
+  externalSources.forEach(function(es, i) {
+    var row = mkEl('div', 'source-item');
+
+    var labelWrap = mkEl('span');
+    labelWrap.appendChild(document.createTextNode('📡 '));
+    labelWrap.appendChild(mkEl('b', null, es.label || es.url));
+    row.appendChild(labelWrap);
+
+    var urlSpan = mkEl('span', null, es.url);
+    urlSpan.style.cssText = 'font-size:11px;color:var(--text-dim)';
+    row.appendChild(urlSpan);
+
+    var rm = mkEl('button', 'remove-btn', '✕');
+    rm.addEventListener('click', function() { removeExtSource(i); });
+    row.appendChild(rm);
+
+    list.appendChild(row);
+  });
+}
+
+function addExternalSource() {
+  var url = document.getElementById('ext-url').value.trim();
+  var label = document.getElementById('ext-label').value.trim();
+  if (!url) return;
+  if (!/^https?:\/\//.test(url)) { alert('请输入有效的 URL (https://...)'); return; }
+  externalSources.push({ url: url, label: label || url.split('/').pop(), added_at: new Date().toISOString() });
+  document.getElementById('ext-url').value = '';
+  document.getElementById('ext-label').value = '';
+  renderExtSourceList();
+  showToast('✅ 外部数据源已添加（需保存后生效）');
+}
+
+function removeExtSource(i) { externalSources.splice(i, 1); renderExtSourceList(); }
+
+function saveExtSources() {
+  localStorage.setItem('skill-forge-ext-sources', JSON.stringify(externalSources));
+  // 同时写入文件（通过桥接）
+  if (bridgeAvailable) {
+    bridgeFetch('ext-sources', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ sources: externalSources })
+    }).catch(function(){});
+  }
+  showToast('💾 外部数据源已保存');
+}
+
+function fetchExtSources() {
+  saveExtSources();
+  if (bridgeAvailable) {
+    bridgeFetch('ext-sources/fetch', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        showToast('✅ 已拉取 ' + (d.count || 0) + ' 个 skill');
+      })
+      .catch(function() { showToast('⚠ 拉取失败，请检查守护进程是否运行'); });
+  } else {
+    showToast('⚠ 队列桥接不可用，请在守护进程运行时操作');
+  }
+}
+
+// ============================================================
+// 渲染
+// ============================================================
+function renderSkills() {
+  var catFilter = document.getElementById('filter-category').value;
+  var statusFilter = document.getElementById('filter-status').value;
+  var sortBy = document.getElementById('filter-sort').value;
+  var search = document.getElementById('search-input').value.toLowerCase();
+
+  var filtered = allSkills.filter(function(s) {
+    if (catFilter !== 'all' && s._category !== catFilter) return false;
+    if (statusFilter !== 'all' && s.status !== statusFilter) return false;
+    if (!activeSourceFilters[s.source]) return false;
+    if (search && (s.name || '').toLowerCase().indexOf(search) === -1
+        && (s.description || '').toLowerCase().indexOf(search) === -1) return false;
+    return true;
+  });
+
+  // 排序 — 按选定指标 + 同分时用另一指标打破平局
+  filtered.sort(function(a, b) {
+    var primary, secondary;
+    if (sortBy === 'stars') {
+      primary = (b.stars || 0) - (a.stars || 0);
+      secondary = (b.score || 0) - (a.score || 0);
+    } else {
+      primary = (b.score || 0) - (a.score || 0);
+      secondary = (b.stars || 0) - (a.stars || 0);
+    }
+    return primary !== 0 ? primary : secondary;
+  });
+
+  var grid = document.getElementById('skills-grid');
+  var empty = document.getElementById('empty-state');
+
+  if (filtered.length === 0) {
+    grid.innerHTML = '';
+    empty.style.display = 'block';
+  } else {
+    empty.style.display = 'none';
+    try {
+      // R8-2：直接挂 DOM 节点，不再拼 HTML 字符串
+      grid.innerHTML = '';
+
+      // R2：同一页分两组 —— 本期新增 / 更早发现。
+      // 口径是"首次出现在哪一期"，不是"距今多少天"，
+      // 所以就算中间跳了一周没扫描，组名和日期也依然是真的。
+      var groups = [
+        { label: t('this_scan'), items: filtered.filter(function(s) { return s._isNew; }) },
+        { label: t('earlier'),   items: filtered.filter(function(s) { return !s._isNew; }) }
+      ];
+      groups.forEach(function(g) {
+        if (!g.items.length) return;
+        var head = mkEl('div', 'group-head');
+        head.appendChild(mkEl('span', 'group-title', g.label));
+        head.appendChild(mkEl('span', 'group-count', String(g.items.length)));
+        grid.appendChild(head);
+        g.items.forEach(function(s) { grid.appendChild(skillCard(s)); });
+      });
+    } catch(e) {
+      grid.innerHTML = '';
+      var errBox = mkEl('div', null, '渲染失败：数据可能已损坏');
+      errBox.style.cssText = 'color:var(--secondary);padding:20px';
+      grid.appendChild(errBox);
+      console.error('Skill Forge panel error:', e);
+    }
+  }
+}
+
+// ============================================================
+// R8-3 —— URL 协议白名单
+// 只放行 http/https，堵住 javascript: 这类无需任何特殊字符就能执行的协议。
+// 不合法一律返回空串，调用方据此不渲染链接。
+// ============================================================
+function safeUrl(u) {
+  var s = String(u == null ? '' : u).trim();
+  return /^https?:\/\//i.test(s) ? s : '';
+}
+
+// ============================================================
+// R1 —— 时间徽章。值缺失或不成形就整个不显示，宁可少一条也不要显示假日期。
+function addDateBadge(parent, icon, label, value) {
+  if (!value) return;
+  var s = String(value).slice(0, 10);
+  if (!s) return;
+  parent.appendChild(mkEl('span', 'badge badge-date', icon + ' ' + label + ' ' + s));
+}
+
+// R8-2 —— DOM 构建小工具
+// 用 createElement + textContent 取代字符串拼接：
+// textContent 永远按纯文本处理，标记注入在结构上就不可能发生，
+// 不需要任何手写转义（本文件历史上正是因为手写转义三套不一致才出的洞）。
+// ============================================================
+function mkEl(tag, className, text) {
+  var node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text != null) node.textContent = String(text);
+  return node;
+}
+
+function skillCard(s) {
+  var isNew = s.status === 'new';
+  var isUpdate = s.status === 'update_available';
+  var isInstalled = installedSkills.has(s.name);
+  var inQueue = installQueue.some(function(q) { return q.name === s.name; });
+  var srcCfg = SOURCE_CONFIG[s.source] || SOURCE_CONFIG['github-topic'];
+
+  var name = (s.name || s.full_name || '?');
+  var rawDesc = s.description || '';
+  var rawDescZh = s.description_zh || '';
+  // 简介：优先用预翻译的中文简介（daemon 生成时通过 Google Translate API 预翻译）
+  var useZh = currentLang === 'zh' && !!rawDescZh;
+  var categoryLabel = LANG[currentLang].category_labels[s._category] || s._category;
+
+  // 验证状态：信任来源自动通过，其余标注未验证
+  var verifiedSources = ['jeremylongshore'];
+  var verified = verifiedSources.indexOf(s.source) >= 0;
+
+  var btnText = isInstalled ? '✅ ' + (currentLang === 'zh' ? '已安装' : 'Installed')
+    : inQueue ? t('queued')
+    : (isUpdate ? t('update_btn') : t('install_btn'));
+  var btnClass = (isInstalled || inQueue) ? 'btn btn-disabled' : 'btn btn-primary';
+
+  var card = mkEl('div', 'card source-' + s.source);
+
+  // ---------- 头部 ----------
+  var header = mkEl('div', 'card-header');
+  var headerLeft = mkEl('div');
+  headerLeft.style.flex = '1';
+
+  var titleRow = mkEl('div');
+  titleRow.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap';
+  titleRow.appendChild(mkEl('span', 'card-title', '📦 ' + name));
+  if (isNew) {
+    titleRow.appendChild(mkEl('span', 'badge badge-new', '🆕 ' + t('new_skill')));
+  } else if (isUpdate) {
+    titleRow.appendChild(mkEl('span', 'badge badge-update', '🔄 ' + t('update_skill')));
+  }
+  titleRow.appendChild(mkEl('span', 'badge badge-source badge-' + srcCfg.color,
+    srcCfg.icon + ' ' + (LANG[currentLang]['source_' + s.source] || srcCfg.label)));
+  titleRow.appendChild(mkEl('span', 'badge ' + (verified ? 'badge-verified' : 'badge-unverified'),
+    verified ? '✅ ' + t('verified') : '⚠ ' + t('unverified')));
+  headerLeft.appendChild(titleRow);
+
+  var descP = mkEl('p', 'card-desc', useZh ? rawDescZh : rawDesc);
+  if (currentLang === 'zh') descP.title = rawDesc;
+  if (useZh && rawDescZh !== rawDesc) {
+    descP.appendChild(document.createTextNode(' '));
+    var aiMark = mkEl('span', null, '🤖');
+    aiMark.style.cssText = 'font-size:10px;color:var(--accent)';
+    aiMark.title = t('translate');
+    descP.appendChild(aiMark);
+  }
+  headerLeft.appendChild(descP);
+  header.appendChild(headerLeft);
+  header.appendChild(mkEl('span', 'rating rating-' + srcCfg.color,
+    srcCfg.icon + ' ' + srcCfg.ratingFn(s) + ' ' + srcCfg.ratingLabel));
+  card.appendChild(header);
+
+  // ---------- 元信息 ----------
+  var meta = mkEl('div', 'card-meta');
+  meta.appendChild(mkEl('span', 'badge badge-category', '🏷 ' + categoryLabel));
+  if (s.stars) meta.appendChild(document.createTextNode(' ⭐ ' + (s.stars || 0).toLocaleString()));
+  if (s.installs) meta.appendChild(document.createTextNode(' 📥 ' + (s.installs || 0).toLocaleString()));
+
+  // R1：时间维度**逐个分别标注**，绝不合并成一个含糊的"日期"。
+  // 三个量含义完全不同，混用会让"这项目还在维护吗"这个判断彻底失真：
+  //   firstSeen  我们本地第一次看到它（受限于我们的扫描历史，不是项目的年龄）
+  //   created_at 仓库建立时间 —— 项目"发布"多久了
+  //   pushed_at  最后一次**代码**推送 —— 还活着吗
+  //   updated_at 仓库**元数据**变动（改描述、涨 star 都算）—— 不等于代码有更新
+  addDateBadge(meta, '🔍', t('first_seen'), s._firstSeen);
+  addDateBadge(meta, '🚀', t('published'), s.created_at);
+  if (s.pushed_at) {
+    addDateBadge(meta, '⬆', t('last_push'), s.pushed_at);
+  } else if (s.updated_at) {
+    // 拿不到 pushed_at 的源（如 claudskills）只能退到 updated_at，
+    // 那就**如实标成另一个名字**，不要冒充成"代码推送"
+    addDateBadge(meta, '↻', t('upstream_changed'), s.updated_at);
+  }
+  card.appendChild(meta);
+
+  // ---------- 更新信息 ----------
+  if (isUpdate) {
+    var upd = mkEl('div', 'update-info');
+    upd.appendChild(mkEl('span', null, (currentLang === 'zh' ? '已安装 SHA' : 'Installed SHA') + ':'));
+    upd.appendChild(document.createTextNode(' '));
+    upd.appendChild(mkEl('code', null, String(s.installed_sha || '').slice(0, 8)));
+    upd.appendChild(document.createTextNode(' → '));
+    upd.appendChild(mkEl('code', null, String(s.latest_sha || '').slice(0, 8)));
+    card.appendChild(upd);
+  }
+
+  // ---------- 操作区 ----------
+  var actions = mkEl('div', 'card-actions');
+  var link = safeUrl(s.url);
+  if (link) {
+    var a = mkEl('a', 'btn btn-ghost', t('view_detail'));
+    a.href = link;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    actions.appendChild(a);
+  }
+  var btn = mkEl('button', btnClass, btnText);
+  if (inQueue) btn.disabled = true;
+  // R8-4：不用内联 onclick，直接挂监听器 —— 彻底消除 JS 字符串上下文
+  btn.addEventListener('click', function() { queueInstall(name, link); });
+  actions.appendChild(btn);
+  card.appendChild(actions);
+
+  return card;
+}
+
+// ============================================================
+// 安装队列
+// ============================================================
+function queueInstall(name, url) {
+  if (installQueue.some(function(q) { return q.name === name; })) return;
+  // 排队的时候**什么都还没检查过**。原先这里写的是 trust_level: 'verified'/'unverified'，
+  // 那个值只是把"来源是否在可信列表里"抄了一遍，安装流程压根不看它 ——
+  // 界面上显示"已审核"而实际没有任何审核。现在如实写 'pending'：
+  // 真正的预检（L1–L5）发生在装的时候，结果随安装响应回来。
+  installQueue.push({ name: name, url: url, added_at: new Date().toISOString(), trust_level: 'pending' });
+  saveQueue();
+  updateQueueBadge();
+  renderSkills();
+  showToast('✅ ' + t('install_toast') + '：' + name, t('install_hint'));
+}
+
+function showQueue() {
+  if (installQueue.length === 0) { alert(currentLang === 'zh' ? '安装队列为空' : 'Queue is empty'); return; }
+  var list = installQueue.map(function(q, i) { return (i+1) + '. ' + q.name + ' (' + t('pending_check') + ')'; }).join('\n');
+  var msg = (currentLang === 'zh' ? '安装队列' : 'Install Queue') + ' (' + installQueue.length + '):\n\n' + list + '\n\n' + (currentLang === 'zh' ? '[确定] 立即安装  [取消] 保留  [清空] 清除队列' : '[OK] Install Now  [Cancel] Keep  [Clear] Clear Queue');
+  var choice = confirm(msg);
+  if (choice) {
+    triggerInstall();
+  } else if (choice === false) {
+    // Cancel → keep queue
+  } else {
+    // User pressed some other key → treat as clear
+    var clearMsg = (currentLang === 'zh' ? '确定要清除安装队列吗？' : 'Clear the install queue?');
+    if (confirm(clearMsg)) { installQueue = []; saveQueue(); updateQueueBadge(); renderSkills(); }
+  }
+}
+
+function triggerInstall() {
+  showToast((currentLang === 'zh' ? '正在安装 ' : 'Installing ') + installQueue.length + (currentLang === 'zh' ? ' 个 skill...' : ' skills...'));
+  bridgeFetch('install', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({}) })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.ok) {
+        var msg = (currentLang === 'zh' ? '安装完成：' : 'Done: ') + res.success + '/' + res.processed + (currentLang === 'zh' ? ' 成功' : ' OK');
+        if (res.failed > 0) {
+          msg += ', ' + res.failed + (currentLang === 'zh' ? ' 失败' : ' failed');
+          // 把每条的**具体原因**带出来。预检拦下的会写"L3 内容 未通过（REJECT）：…"，
+          // 只显示一个"N 个失败"等于把最有用的那句话丢掉。
+          var why = (res.results || []).filter(function(x) { return x && x.ok === false; })
+            .map(function(x) { return '· ' + x.name + '：' + (x.error || '未知原因'); }).join('\n');
+          if (why) msg += '\n\n' + why;
+        }
+        alert(msg);
+        installQueue = [];
+        saveQueue();
+        updateQueueBadge();
+        // R4-c：安装刚改动了 sources.json，已装名单和卡片上的"已安装"标记都过期了。
+        // loadInstalled() 会拿到新名单并顺带 renderSkills()，比只刷卡片更完整。
+        loadInstalled();
+      } else {
+        alert((currentLang === 'zh' ? '安装失败：' : 'Failed: ') + (res.error || 'unknown'));
+      }
+    })
+    .catch(function(e) {
+      alert((currentLang === 'zh' ? '安装请求失败，bridge 可能未运行。\n请等待 daemon 扫描完成后重试。' : 'Install request failed. Bridge may not be running.\nWait for daemon scan to complete and retry.'));
+    });
+}
+
+function updateQueueBadge() {
+  var badge = document.getElementById('queue-badge');
+  document.getElementById('queue-count').textContent = installQueue.length;
+  badge.classList.toggle('visible', installQueue.length > 0);
+}
+
+// R8-2：改用 textContent —— msg 里含用户可控的 skill 名，innerHTML 会执行注入的标记。
+// 需要副文本时走第二个参数，由这里安全地拼 <br><small>。
+function showToast(msg, sub) {
+  var toast = mkEl('div', 'toast', msg);
+  if (sub) {
+    toast.appendChild(document.createElement('br'));
+    toast.appendChild(mkEl('small', null, sub));
+  }
+  document.getElementById('toast-container').appendChild(toast);
+  setTimeout(function() { toast.remove(); }, 4000);
+}
+
+function saveQueue() {
+  localStorage.setItem('skill-forge-queue', JSON.stringify(installQueue));
+  if (!bridgeAvailable) return;
+  try {
+    bridgeFetch('', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ version: 1, pending: installQueue.map(function(q) {
+        return { skill_name: q.name, repo_url: q.url, added_at: q.added_at, trust_level: q.trust_level };
+      }), history: [], last_processed: null })
+    }).catch(function(){});
+  } catch(e) {}
+}
+
+// ============================================================
+// R8-4 —— 静态控件的事件绑定
+// 页面上不再存在任何内联 on* 属性，全部集中在这里挂监听器。
+// 由此得到一条硬不变量：以后谁想往 handler 里插数据，都没有内联属性可插。
+// ============================================================
+function bindStaticHandlers() {
+  function on(id, event, fn) {
+    var node = document.getElementById(id);
+    if (node) node.addEventListener(event, fn);
+  }
+  on('btn-zh', 'click', function() { setLang('zh'); });
+  on('btn-en', 'click', function() { setLang('en'); });
+  on('btn-freeze', 'click', function() { frozenDate ? unfreezePeriod() : freezePeriod(); });
+  on('btn-settings', 'click', openSettings);
+  on('btn-close-settings', 'click', closeSettings);
+  on('btn-settings-close2', 'click', closeSettings);
+  // 点遮罩空白处关闭（点内容区不该关，所以判断 target 就是遮罩本身）
+  var overlay = document.getElementById('settings-modal');
+  if (overlay) {
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) closeSettings();
+    });
+  }
+  on('btn-installed', 'click', toggleInstalled);
+  on('btn-close-installed', 'click', toggleInstalled);
+  on('btn-ext-sources', 'click', toggleExtSources);
+  on('btn-source-filters', 'click', toggleSourceFilters);
+  on('btn-add-source', 'click', addExternalSource);
+  on('btn-save-sources', 'click', saveExtSources);
+  on('btn-fetch-sources', 'click', fetchExtSources);
+  on('btn-queue', 'click', showQueue);
+  on('filter-category', 'change', renderSkills);
+  on('filter-status', 'change', renderSkills);
+  on('filter-sort', 'change', renderSkills);
+  on('search-input', 'input', renderSkills);
+}
+
+// ============================================================
+// 初始化 — 立即渲染
+// ============================================================
+// ============================================================
+// 设置（R6/R9）—— 翻译后端 / AI 模型 / 密钥
+// ============================================================
+// 注意这里的分工：
+//   非敏感偏好（选了哪个后端、哪个模型）→ 存 localStorage，随便存
+//   密钥                              → **只存在 Windows 凭据管理器**，
+//                                        面板从头到尾拿不到它的值，
+//                                        只能通过 bridge 知道"配没配"
+// 注意：这些设置**不存 localStorage**。
+// 改设置的是面板，执行翻译的是 daemon（独立进程，读不到浏览器存储），
+// 所以真源只能是磁盘上的 templates/translate-config.json，
+// 由 bridge 读给面板、也由 bridge 写。面板自己再缓存一份就会有两个真源。
+let settingsState = {
+  config: { backend: 'google', model: '', prompt: '' },
+  currentModel: '',    // Claude Code 当前在用的那个（用于显示"当前使用"角标）
+  creds: null,         // {available, github_token, ai_token} —— 只有布尔值
+  models: [],
+  prompts: [],
+  aiReady: false,
+};
+
+function openSettings() {
+  var modal = document.getElementById('settings-modal');
+  if (modal) modal.classList.add('open');
+  renderSettings();
+  // 配置、模型、可选提示词一次拉齐（bridge 侧合成一个响应，省得界面闪三次）
+  fetchTranslateConfig();
+  fetchCredentialStatus();
+}
+
+// 改配置：先写 bridge，再按服务端返回的**实际值**重渲染。
+// 不用本地乐观更新 —— 配置是校验过的（非法后端名会被退回默认），
+// 乐观更新会让面板显示一个服务端根本没接受的选项。
+function saveConfig(patch, silent) {
+  var merged = { backend: settingsState.config.backend,
+                 model: settingsState.config.model,
+                 prompt: settingsState.config.prompt };
+  for (var k in patch) if (patch.hasOwnProperty(k)) merged[k] = patch[k];
+  settingsState.config = merged;
+
+  return bridgeFetch('translate-config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d && d.config) settingsState.config = d.config;
+      renderSettings();
+      if (!silent) showToast('✅ ' + t('settings_saved'));
+    })
+    .catch(function() {
+      // 存不进磁盘 = 实际扫描时不会生效，必须说清楚，不能装作存上了
+      showToast('⚠ ' + t('settings_need_bridge'));
+      renderSettings();
+    });
+}
+
+function fetchTranslateConfig() {
+  bridgeFetch('translate-config')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d && d.config) settingsState.config = d.config;
+      settingsState.prompts = (d && d.prompts && d.prompts.prompts) || [];
+      settingsState.models = (d && d.models && d.models.models) || [];
+      settingsState.currentModel = (d && d.models && d.models.current) || '';
+      settingsState.aiReady = !!(d && d.ai_ready);
+      // 没选过模型就默认用当前在用的那个，省得每次都要手点
+      if (!settingsState.config.model && settingsState.currentModel) {
+        settingsState.config.model = settingsState.currentModel;
+        saveConfig({ model: settingsState.currentModel }, true);
+      }
+      // 没选过提示词就用 manifest 的默认
+      if (!settingsState.config.prompt && d && d.prompts && d.prompts.default) {
+        settingsState.config.prompt = d.prompts.default;
+      }
+      renderSettings();
+    })
+    .catch(function() { renderSettings(); });
+}
+
+function closeSettings() {
+  document.getElementById('settings-modal').classList.remove('open');
+}
+
+function renderSettings() {
+  renderBackendChoices();
+  renderModelList();
+  renderPromptList();
+  renderSecretRows();
+}
+
+function renderBackendChoices() {
+  var box = document.getElementById('backend-choices');
+  if (!box) return;
+  box.innerHTML = '';
+  var cfg = settingsState.config;
+  [
+    { id: 'google', title: t('backend_google'), desc: t('backend_google_desc') },
+    { id: 'ai',     title: t('backend_ai'),     desc: t('backend_ai_desc') },
+  ].forEach(function(opt) {
+    var el = mkEl('div', 'choice' + (cfg.backend === opt.id ? ' active' : ''));
+    el.appendChild(mkEl('div', 'choice-title', opt.title));
+    el.appendChild(mkEl('div', 'choice-desc', opt.desc));
+    el.addEventListener('click', function() { saveConfig({ backend: opt.id }); });
+    box.appendChild(el);
+  });
+  // 选了 Google 就把 AI 相关的两块藏起来 —— 它们跟 Google 没关系，
+  // 摆着只会让人以为必须配
+  var aiSection = document.getElementById('ai-section');
+  if (aiSection) aiSection.style.display = cfg.backend === 'ai' ? 'block' : 'none';
+
+  // AI 后端的两个前提条件没满足时，明说缺什么
+  var warn = document.getElementById('ai-warning');
+  if (warn) {
+    if (cfg.backend === 'ai' && !settingsState.aiReady) {
+      warn.textContent = t('ai_need_key');
+      warn.style.display = 'block';
+    } else if (cfg.backend === 'ai' && !cfg.model) {
+      warn.textContent = t('ai_need_model');
+      warn.style.display = 'block';
+    } else {
+      warn.style.display = 'none';
+    }
+  }
+}
+
+function renderModelList() {
+  var box = document.getElementById('model-list');
+  if (!box) return;
+  box.innerHTML = '';
+
+  if (!settingsState.models.length) {
+    box.appendChild(mkEl('div', 'model-empty', t('model_none')));
+    return;
+  }
+  settingsState.models.forEach(function(m) {
+    var on = settingsState.config.model === m.id;
+    var card = mkEl('div', 'model-card' + (on ? ' active' : ''));
+    card.appendChild(mkEl('div', 'mc-dot'));
+    var main = mkEl('div', 'mc-main');
+    main.appendChild(mkEl('div', 'mc-id', m.id));
+    main.appendChild(mkEl('div', 'mc-tier', m.tier + (m.label ? ' · ' + m.label : '')));
+    card.appendChild(main);
+    if (m.id === settingsState.currentModel) {
+      card.appendChild(mkEl('span', 'mc-badge', t('model_current')));
+    }
+    card.addEventListener('click', function() { saveConfig({ model: m.id }); });
+    box.appendChild(card);
+  });
+}
+
+// 内置翻译提示词的选择器。和模型选择器同一套外观 ——
+// 两者都是"从一份清单里挑一个"，长得不一样只会让人以为是两类东西。
+function renderPromptList() {
+  var box = document.getElementById('prompt-list');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!settingsState.prompts.length) {
+    box.appendChild(mkEl('div', 'model-empty', t('prompt_none')));
+    return;
+  }
+  settingsState.prompts.forEach(function(p) {
+    var on = settingsState.config.prompt === p.id;
+    var card = mkEl('div', 'model-card' + (on ? ' active' : ''));
+    card.appendChild(mkEl('div', 'mc-dot'));
+    var main = mkEl('div', 'mc-main');
+    main.appendChild(mkEl('div', 'mc-id', p.name));
+    main.appendChild(mkEl('div', 'mc-tier', p.description || ''));
+    card.appendChild(main);
+    // 许可证必须显示出来 —— 这些提示词有的来自第三方，用户有权知道
+    if (p.license) card.appendChild(mkEl('span', 'mc-license', p.license));
+    if (p.available === false) {
+      card.classList.add('disabled');
+      card.title = t('prompt_missing');
+    } else {
+      card.addEventListener('click', function() { saveConfig({ prompt: p.id }); });
+    }
+    box.appendChild(card);
+  });
+}
+
+function renderSecretRows() {
+  var box = document.getElementById('secret-rows');
+  if (!box) return;
+  box.innerHTML = '';
+  var creds = settingsState.creds;
+
+  [
+    { name: 'github-token', label: t('key_github'), sub: t('key_github_sub'), on: creds && creds.github_token },
+    { name: 'ai-token',     label: t('key_ai'),     sub: t('key_ai_sub'),     on: creds && creds.ai_token },
+  ].forEach(function(row) {
+    var el = mkEl('div', 'secret-row');
+    var main = mkEl('div', 'sr-main');
+    main.appendChild(mkEl('div', 'sr-name', row.label));
+    main.appendChild(mkEl('div', 'sr-sub', row.sub));
+    el.appendChild(main);
+
+    // 只显示"配没配"，**没有**任何地方能读到值本身
+    var pill = mkEl('span', 'status-pill ' + (row.on ? 'on' : 'off'),
+      row.on ? t('key_configured') : t('key_missing'));
+    el.appendChild(pill);
+
+    var setBtn = mkEl('button', 'btn btn-ghost btn-sm', t('key_set'));
+    setBtn.addEventListener('click', function() { requestCredential(row.name, setBtn); });
+    el.appendChild(setBtn);
+
+    if (row.on) {
+      var delBtn = mkEl('button', 'btn btn-ghost btn-sm', t('key_clear'));
+      delBtn.addEventListener('click', function() { deleteCredential(row.name); });
+      el.appendChild(delBtn);
+    }
+    box.appendChild(el);
+  });
+}
+
+function fetchCredentialStatus() {
+  bridgeFetch('credentials')
+    .then(function(r) { return r.json(); })
+    .then(function(d) { settingsState.creds = d; renderSecretRows(); })
+    .catch(function() { /* bridge 不在线：保持上次的显示 */ });
+}
+
+function requestCredential(name, btn) {
+  if (btn) { btn.disabled = true; }
+  showToast('🔑 ' + t('key_opened'));
+  // 这个请求会一直挂着，直到用户在原生框里点了确定或取消 ——
+  // 所以不能设短超时，否则框还开着请求就断了
+  bridgeFetch('credentials/request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name }),
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      settingsState.creds = d;
+      if (d.ok) showToast('✅ ' + t('key_stored'));
+      else if (d.status === 'cancelled') showToast('🚫 ' + t('key_cancelled'));
+      else if (d.error === 'busy') showToast('⚠ ' + t('key_busy'));
+      else showToast('⚠ ' + (d.status || d.error || 'failed'));
+      renderSecretRows();
+    })
+    .catch(function() {
+      // bridge 连不上时，密钥输入框根本没法弹（框是 bridge 拉起来的）
+      showToast('⚠ ' + t('uninstall_offline'));
+      renderSecretRows();
+    });
+}
+
+function deleteCredential(name) {
+  bridgeFetch('credentials/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name }),
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      settingsState.creds = d;
+      showToast('🗑 ' + t('key_deleted'));
+      renderSecretRows();
+    })
+    .catch(function() { showToast('⚠ ' + t('uninstall_offline')); });
+}
+
+// ============================================================
+// 初始化 — 立即渲染
+// ============================================================
+bindStaticHandlers();
+// 注：翻译后端的设置**不在这里预加载** —— 它存在 daemon 侧的配置文件里，
+// 等用户打开设置面板时再向 bridge 要（见 openSettings）。
+loadFrozen();     // R3：先读回冻结点，再决定渲染哪一期
+flattenData();
+applyLang();
+renderSkills();
+updateQueueBadge();
+initInstalled();
+loadExtSources();
+
+// 异步队列（3s 超时）
+var ctrl = new AbortController();
+setTimeout(function() { ctrl.abort(); }, 3000);
+bridgeFetch('', { signal: ctrl.signal })
+  .then(function(r) { return r.ok ? r.json() : Promise.reject(); })
+  .then(function(data) {
+    installQueue = (data.pending || []).map(function(p) {
+      return { name: p.name || p.skill_name || '', url: p.url || p.repo_url || '',
+               added_at: p.added_at || new Date().toISOString(), trust_level: 'pending' };
+    });
+    bridgeAvailable = true;
+    updateQueueBadge(); renderSkills();
+  })
+  .catch(function() {
+    installQueue = JSON.parse(localStorage.getItem('skill-forge-queue') || '[]');
+  });
+
+// 注：这里**不再**写 header-subtitle。
+// 那是期状态条（renderPeriodBar）的地盘 —— 两处都写会让"现在看的是哪一期"
+// 取决于脚本执行顺序，冻结在旧期时就会显示成今天的日期。见 renderPeriodBar。
+</script>
+</body>
+</html>
