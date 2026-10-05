@@ -292,8 +292,14 @@ def main():
     print("=" * 60)
 
     if not is_repo():
-        check(False, "当前目录是 git 仓库", "不是仓库就无所谓推不推得出去")
-        return finish()
+        # 这个检查问的是"推出去之后会不会泄露"，所以只有**仓库**里才有意义。
+        # 运行时目录（~/.claude/skills/skill-forge）不是 git 仓库 —— deploy 时
+        # 刻意不部署 .git —— 在那里跑必然报"不是仓库"，那是误报不是问题。
+        # 按项目惯例：前置不满足就 SKIP（退出码 2），不算失败。
+        print("SKIP: 当前目录不是 git 仓库，跳过（这是推送前的自查，只在仓库里跑）")
+        print(f"      位置：{ROOT}")
+        print("      要跑它：cd 到仓库目录再执行")
+        return 2
 
     rules = build_rules()
     print(f"规则 {len(rules)} 条 | 本机用户名 {os.environ.get('USERNAME', '(未知)')!r}\n")
