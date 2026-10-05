@@ -86,9 +86,9 @@ powershell -ExecutionPolicy Bypass -File ~/.claude/skills/skill-forge/daemon/ins
 | `translate_ai.py` | **AI 翻译后端**。走 `ANTHROPIC_BASE_URL` + `/v1/messages`，`temperature=0`。**失败一律静默退回 Google** —— 密钥过期/余额不足/模型下线都不该让整轮扫描跟着失败。 |
 | `translate_config.py` | 翻译配置（后端 + 模型 + 提示词），落 `templates/translate-config.json`。**面板读不到 localStorage，所以配置必须存在磁盘上**。默认 `google`。 |
 | `translate_prompts.py` | 内置翻译提示词清单。只对外暴露 id/名称/许可证，**不暴露文件路径**。 |
-| `notifier.py` | **发送 Windows Toast 通知**，点击通知直接打开面板。 |
+| `notifier.py` | **发送 Windows Toast 通知**，随后**自动**用默认浏览器打开面板（不等点击 —— Toast 上没有绑任何激活动作，这是已知限制，不是 bug）。 |
 | `queue_bridge.py` | **面板与磁盘之间的 HTTP 桥**，监听 `127.0.0.1:18970`。浏览器中的面板是静态页，无法直接写文件，因此"标记安装/卸载/修改外部数据源/改配置"都交由它代写。用 `ThreadingHTTPServer`：收密钥要弹原生框（最长阻塞 180 秒），单线程会让整个面板在这期间看起来像崩了。 |
-| `bridge_auth.py` | **bridge 的锁**。共享密钥（落盘固定不轮换）+ Origin 白名单。不锁的话，用户浏览器里**任何网站**都能 POST `/install` 或调 `/uninstall` 删本地文件。 |
+| `bridge_auth.py` | **bridge 的锁**。共享密钥（**每次周度扫描轮换**，旧密钥保留 14 天宽限期）+ Origin 白名单。不锁的话，用户浏览器里**任何网站**都能 POST `/install` 或调 `/uninstall` 删本地文件。 |
 | `installed.py` | 已安装名单的**唯一**形状定义。bridge 的 `GET /installed` 与 daemon 生成面板时的嵌入数据共用它，在线/离线才不会给出两种格式。 |
 | `periods.py` | 历史各期数据的两层拆分（catalog + periods），避免嵌入面板的体积每周线性增长。 |
 | `safe_embed.py` | `json_for_script()` —— 把 JSON 安全地放进 `<script>` 块（转义 `</`）。 |
@@ -202,7 +202,7 @@ classifier.py 分类排序 ──▶ translate.py 翻译（带缓存）
       │
       ├──▶ discover/weekly-<日期>.json   原始数据存档
       ├──▶ discover/latest.html          面板成品
-      └──▶ notifier.py                   Toast 通知（点击打开面板）
+      └──▶ notifier.py                   Toast 通知 + 自动打开面板
 
 面板交互 ◀──HTTP──▶ queue_bridge.py (127.0.0.1:18970) ──▶ install-queue.json
                                                               │
