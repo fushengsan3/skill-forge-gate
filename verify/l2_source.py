@@ -56,7 +56,16 @@ def check_source(url: str, token: str = None) -> dict:
     result = api_get(api_url)
 
     if not result["ok"]:
-        return {"verdict": "REJECT", "reason": f"仓库不可达: {result.get('reason', 'unknown')}"}
+        # **"问不到 GitHub" ≠ "这个仓库危险"。**
+        #
+        # 原先这里返回 REJECT，而预检把 REJECT 当"拒绝安装" —— 于是 GitHub API
+        # 一限流（匿名只有 60 次/小时）或断网，**所有安装都会被拒**，理由还是
+        # 一句"仓库不可达"，而调用方刚刚才从这个仓库 clone 成功过。
+        #
+        # 所以单列一个 UNKNOWN：核查没做成，不是核查没通过。
+        # 预检对**外部层**的 UNKNOWN 按"跳过"处理（见 daemon/precheck.py）。
+        return {"verdict": "UNKNOWN",
+                "reason": f"无法向 GitHub 核实来源：{result.get('reason', 'unknown')}"}
 
     repo_data = result["data"]
     repo_full_name = repo_data.get("full_name", f"{owner}/{repo}")

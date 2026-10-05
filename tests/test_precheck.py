@@ -134,6 +134,33 @@ def run_checks(tmp: Path):
     check(not r["ok"] and r["blocked_by"] == ["L3 内容"],
           "★ REVIEW 也拦 —— 无人值守路径上没有「那个人」来看它", r["summary"])
 
+    print("--- 2b. L2 的黄色不该拦：它是声誉检查，不是安全检查 ---")
+    f = green()
+    f["l2_source"] = mod(check_source=lambda url, token=None: v("REVIEW", "Star 数较少 (3)"))
+    with with_verify(f):
+        r = precheck.verify_repo(tmp, "u", skills_dir=tmp)
+    check(r["ok"],
+          "★ L2 REVIEW（星少 / fork / 无许可证）不拦 —— 一刀切会拒掉几乎整个生态",
+          r["summary"])
+
+    f = green()
+    f["l2_source"] = mod(check_source=lambda url, token=None: v("REJECT", "已归档"))
+    with with_verify(f):
+        r = precheck.verify_repo(tmp, "u", skills_dir=tmp)
+    check(not r["ok"] and r["blocked_by"] == ["L2 来源"],
+          "L2 REJECT（仓库归档/不存在）仍然拦", r["summary"])
+
+    f = green()
+    f["l2_source"] = mod(check_source=lambda url, token=None: v("UNKNOWN", "API 限流"))
+    with with_verify(f):
+        r = precheck.verify_repo(tmp, "u", skills_dir=tmp)
+    check(r["ok"],
+          "★ L2 UNKNOWN（问不到 GitHub）当跳过，不拦 —— 核查没做成 ≠ 核查没通过",
+          r["summary"])
+    l2 = [L for L in r["layers"] if L["name"] == "L2 来源"][0]
+    check(l2["verdict"] == "SKIPPED" and "无法核实" in l2["reason"],
+          "UNKNOWN 被如实标成 SKIPPED 并说明原因", l2["reason"][:60])
+
     print("--- 3. WARN 放行（别把结构提示当危险信号）---")
     f = green()
     f["l1_structure"] = mod(check_skill=lambda p: v("WARN", "仅含 SKILL.md"))

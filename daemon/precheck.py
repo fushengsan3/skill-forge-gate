@@ -44,8 +44,21 @@ from pathlib import Path
 
 SKILLS_DIR = Path.home() / ".claude" / "skills"
 
-# 这两种结论都会挡住安装
+# 默认：这两种结论挡住安装
 BLOCKING_VERDICTS = frozenset({"REJECT", "REVIEW"})
+
+# 但**不能一刀切** —— 每层的"黄"含义不一样。
+#
+# L2 是**声誉**检查：星数少、是 fork、没写许可证，全给黄。
+# 这几条对绝大多数开源 skill 都成立（刚发布的项目星数就是少）。
+# 一刀切地"REVIEW 就拦"，等于把整个生态拒之门外，而且拒的理由
+# 跟安全毫无关系。
+#
+# 真正需要人工看的是**内容**层的黄（L3：可疑模式）和冲突层的黄（L4）。
+# 所以 L2 只在 REJECT（仓库归档 / 不存在）时才拦。
+BLOCKING_BY_LAYER = {
+    "L2 来源": frozenset({"REJECT"}),
+}
 
 # 静态分析：纯本地读文件，本该总能跑完。跑不完 = 没验成 = 拒。
 STATIC = "static"
@@ -130,7 +143,14 @@ def verify_repo(repo_dir, url: str, skills_dir=None) -> dict:
 
     blocked = []
     for layer in layers:
-        if layer["verdict"] in BLOCKING_VERDICTS:
+        # 外部层"没问成"（API 限流、断网）→ 当跳过，不当拒绝。
+        # 核查没做成 ≠ 核查没通过。见 verify/l2_source.py 里的说明。
+        if layer["verdict"] == "UNKNOWN" and layer["kind"] == EXTERNAL:
+            layer["verdict"] = "SKIPPED"
+            layer["reason"] = "无法核实 —— " + layer["reason"]
+
+        blocking = BLOCKING_BY_LAYER.get(layer["name"], BLOCKING_VERDICTS)
+        if layer["verdict"] in blocking:
             blocked.append(layer)
         elif layer["verdict"] == "ERROR" and layer["kind"] == STATIC:
             blocked.append(layer)
