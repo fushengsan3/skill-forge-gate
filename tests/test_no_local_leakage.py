@@ -65,7 +65,7 @@ def build_rules():
     user = os.environ.get("USERNAME") or os.environ.get("USER") or ""
 
     # 用户名段：首字符不是点，不含分隔符/空白/引号/尖括号/百分号，至少 2 字符
-    EXCL = BS + r"/\s'\"<>%$*?|:"
+    EXCL = BS + r"/\s'\"<>%$*?|:`"
     NAMEPART = r"(?!\.)[^" + EXCL + r"]{2,}"
 
     rules = [
@@ -132,7 +132,10 @@ def _is_placeholder_path(matched: str) -> bool:
     """`\\Users\\alice` 这类 —— 名字段是通用假名就放过。"""
     tail = re.split(r"[\\/]", matched)
     tail = [p for p in tail if p]
-    return bool(tail) and tail[-1].lower() in FAKE_USERNAMES
+    if not tail:
+        return False
+    # 路径后面常紧跟 markdown 的反引号、逗号、句号 —— 剥掉再比
+    return tail[-1].lower().strip("`.,;:)]}'\"") in FAKE_USERNAMES
 
 
 def scan_text(text: str, rules):
