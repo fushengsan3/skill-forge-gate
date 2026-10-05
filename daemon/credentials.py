@@ -123,7 +123,12 @@ def configured() -> dict:
 
 
 def list_stored() -> list:
-    """列出 skill-forge 自己写过的凭据名（用于诊断，同样不含值）。"""
+    """列出 skill-forge 自己写过的凭据名（用于诊断，同样不含值）。
+
+    存在的理由：`configured()` 只回两个布尔，答不了"为什么会说没配"。
+    凭据管理器里可能躺着一条名字稍有不同的陈旧条目（改名、手滑建错），
+    那要靠枚举才能看见。**只回名字，不回值。**
+    """
     if not AVAILABLE:
         return []
     try:
@@ -135,3 +140,14 @@ def list_stored() -> list:
         return sorted(out)
     except Exception:
         return []
+
+
+if __name__ == "__main__":
+    # 手工排查用：这个模块原先没有命令行入口，于是 list_stored() 写了却
+    # 谁也够不着 —— "功能在、入口不在"。接上它就一行的事。
+    import json
+    print(json.dumps({
+        "available": AVAILABLE,
+        "configured": configured(),
+        "stored_names": list_stored(),
+    }, ensure_ascii=False, indent=2))
