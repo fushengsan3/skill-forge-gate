@@ -88,7 +88,9 @@ python verify/l4_conflict_detect.py <skill路径> ~/.claude/skills
 ```
 python verify/l5_sandbox.py <skill路径>
 ```
-沙箱内加载 skill → 调 Claude API → 收集 tool_call 序列 → 报告计划执行的操作。
+加固容器内加载 skill（只读挂载 / 非 root / 能力全削 / 资源受限 / 跑完即毁）
+→ 调 Claude API → 收集 tool_call 序列 → 报告**它计划**执行的操作。
+注意：这些调用**不会被真的执行**。你拿到的是「它想干什么」，不是执行结果。
 Docker 不可用时自动跳过，标记 "沙箱审计不可用"。
 
 **Step 7 — 汇总安全报告**

@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 """
-L5 沙箱行为审计 — 在隔离环境中加载 skill，观察 tool_call 序列
-默认使用 Docker 沙箱，深度审计使用 OpenSandbox + gVisor
-只收集 Claude 计划调用的 tool，不实际执行命令
+L5 沙箱行为审计 —— 在 Docker 容器里加载 skill，观察它**计划**调用哪些工具。
+
+注意两件事：
+  1. 容器是**真的**会跑的（run_docker_sandbox 里有一次 docker run），
+     不是只 build 一下就完事。
+  2. 工具调用只被**观察**，不被执行 —— 你拿到的是「它想干什么」，
+     不是一个被炸掉的容器。真执行是下一步的事。
+
+所谓「gVisor 深度审计」目前**并不存在**，sandbox/gvisor.toml 是个没接上
+代码的配置文件。别在文档里承诺它。
+
 输出 JSON 审计报告到 stdout
 """
 import json
@@ -16,13 +24,43 @@ PROXY = "http://127.0.0.1:7897"
 
 
 def run_docker_sandbox(skill_path: str, test_prompts: list) -> dict:
+    """在 Docker 容器里跑 L5 审计。
+
+    ## 这是一次**真的** docker run
+
+    2026-10-05 之前这里只做 `docker build`，**从来没有 `docker run`** ——
+    镜像建完就扔了，模型调用发生在宿主进程里。于是文档里写的
+    「在隔离容器中加载 skill」是假的，容器从未启动过。现在审计过程真的在容器里跑。
+
+    ## 隔离了什么
+
+      - skill 目录以 **:ro** 挂载 —— 改不了被审计的东西
+      - 容器内以**非 root** 运行（Dockerfile 里的 USER sandbox）
+      - `--cap-drop=ALL` + `no-new-privileges` —— 拿不到任何额外能力
+      - `--read-only` 根文件系统，只给 /tmp 一块 tmpfs
+      - 内存 / CPU / 进程数都有上限，跑飞了也拖不垮宿主
+      - `--rm` —— 跑完即毁，不留东西
+      - **引擎密钥走 stdin**，不进 `-e`、不进命令行参数 ——
+        那两个通道会把它写进 `docker inspect` 和宿主的进程表
+
+    ## 没有隔离什么（必须说清楚）
+
+    模型仍然只是**声明**它想调用什么工具，**这些调用不会被真的执行**。
+    一份写着 `rm -rf /` 的 skill 永远不会真的跑起来 —— 你拿到的是
+    「它想干什么」的情报，不是一个被炸掉的容器。真执行是下一步的事。
+
+    ## 前置缺失时怎么办
+
+    没有 Docker / 没有 ANTHROPIC_API_KEY → 返回 verdict=ERROR 并说明原因。
+    **不返回 PASS** —— 没做成的事不能算通过。至于要不要因此拦住安装，
+    那是调用方（daemon/precheck.py）的判断，那边对缺前置是按「跳过」处理的。
     """
-    使用 Docker 容器做沙箱审计
-    容器内：只读挂载 skill → 调 Claude API → 收集 tool_call → 销毁容器
-    """
-    skill_name = Path(skill_path).name
-    container_name = f"skill-forge-audit-{skill_name}-{os.getpid()}"
-    dockerfile = Path(__file__).parent.parent / "sandbox" / "default.dockerfile"
+    skill_path = Path(skill_path).resolve()
+    skill_name = skill_path.name
+    image = "skill-forge-sandbox:latest"
+    container_name = f"skill-forge-audit-{os.getpid()}"
+    sandbox_dir = Path(__file__).parent.parent / "sandbox"
+    dockerfile = sandbox_dir / "default.dockerfile"
 
     results = {
         "sandbox_type": "docker",
@@ -32,63 +70,120 @@ def run_docker_sandbox(skill_path: str, test_prompts: list) -> dict:
         "verdict": "PASS",
     }
 
+    def fail(reason: str) -> dict:
+        results["error"] = reason
+        results["verdict"] = "ERROR"
+        return results
+
+    if not dockerfile.exists():
+        return fail(f"找不到沙箱 Dockerfile：{dockerfile}")
+
+    # ---- 1. 构建镜像（有缓存就很快）----
     try:
-        # 构建镜像
         subprocess.run(
-            ["docker", "build", "-t", "skill-forge-sandbox", "-f", str(dockerfile),
-             str(Path(__file__).parent.parent / "sandbox")],
-            capture_output=True, text=True, timeout=60, check=True
+            ["docker", "build", "-t", image, "-f", str(dockerfile), str(sandbox_dir)],
+            capture_output=True, text=True, timeout=180, check=True,
         )
-
-        # 对每个测试 prompt 调 Claude API
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        skill_content = (Path(skill_path) / "SKILL.md").read_text(encoding="utf-8", errors="ignore")
-
-        for prompt in test_prompts:
-            tool_calls = call_claude_with_skill(skill_content, prompt, api_key)
-            results["tool_calls_observed"].append({
-                "prompt": prompt,
-                "calls": tool_calls
-            })
-
-        # 分析 tool_call
-        all_tools = []
-        for entry in results["tool_calls_observed"]:
-            # 分离有效调用和错误条目
-            valid_calls = [t for t in entry["calls"] if isinstance(t, dict) and "name" in t and t.get("name") != "error"]
-            error_entries = [t for t in entry["calls"] if isinstance(t, dict) and t.get("name") == "error"]
-            if error_entries:
-                results.setdefault("errors", []).extend(error_entries)
-            all_tools.extend(valid_calls)
-
-        bash_calls = [t for t in all_tools if t.get("name") == "Bash"]
-        write_calls = [t for t in all_tools if t.get("name") in ("Write", "Edit")]
-        # 只检查 tool 名称和 input 中的具体字段，避免误报
-        network_tool_names = ["WebFetch", "WebSearch"]
-        network_calls = [t for t in all_tools if (
-            t.get("name") in network_tool_names or
-            (isinstance(t.get("input"), dict) and
-             any(k in str(t["input"]).lower() for k in ["url", "domain", "endpoint"]))
-        )]
-
-        results["summary"] = {
-            "total_tool_calls": len(all_tools),
-            "bash_calls": len(bash_calls),
-            "write_calls": len(write_calls),
-            "network_indicators": len(network_calls),
-        }
-
-        # 对比静态分析结果
-        if bash_calls:
-            results["verdict"] = "REVIEW"
-            results["note"] = f"skill 计划执行 {len(bash_calls)} 个 Bash 命令，请与 L3 静态分析结果交叉验证"
-
+    except FileNotFoundError:
+        return fail("找不到 docker 命令 —— 这台机器没装 Docker 或不在 PATH 里")
     except subprocess.CalledProcessError as e:
-        results["error"] = f"Docker 操作失败: {e.stderr}"
-        results["verdict"] = "ERROR"
-    except Exception as e:
-        results["error"] = str(e)
-        results["verdict"] = "ERROR"
+        return fail(f"docker build 失败：{(e.stderr or '')[-400:]}")
+    except subprocess.TimeoutExpired:
+        return fail("docker build 超时（180 秒）")
+
+    # ---- 2. 前置：密钥 ----
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return fail("没有 ANTHROPIC_API_KEY —— 容器里调不了模型，沙箱无法完成审计")
+
+    skill_md = skill_path / "SKILL.md"
+    skill_content = (skill_md.read_text(encoding="utf-8", errors="ignore")
+                     if skill_md.exists() else "")
+
+    payload = json.dumps({
+        "skill_content": skill_content,
+        "prompts": list(test_prompts or []),
+        "api_key": api_key,
+        "base_url": os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com",
+        "model": (os.environ.get("ANTHROPIC_MODEL") or "").strip()
+                 or "claude-haiku-4-5-20251001",
+        "timeout": 30,
+        # 沙箱内**不设代理** —— 宿主需要代理是宿主的事，
+        # 把宿主的内网地址带进容器是反方向的。
+        "proxy": "",
+    })
+
+    # ---- 3. 真的跑 ----
+    cmd = [
+        "docker", "run", "--rm", "-i",
+        "--name", container_name,
+        # 被审计的东西只读挂进来
+        "-v", f"{skill_path}:/skill:ro",
+        # 根文件系统只读，只开一块 tmpfs 给临时文件
+        "--read-only",
+        "--tmpfs", "/tmp:rw,nosuid,size=16m",
+        # 能力全削
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        # 资源上限：跑飞了也拖不垮宿主
+        "--memory", "512m", "--memory-swap", "512m",
+        "--cpus", "1",
+        "--pids-limit", "128",
+        # 根文件系统只读时 Python 不该去写字节码缓存；HOME 指到 tmpfs
+        "-e", "PYTHONDONTWRITEBYTECODE=1",
+        "-e", "HOME=/tmp",
+        image,
+    ]
+
+    try:
+        proc = subprocess.run(cmd, input=payload, capture_output=True,
+                              text=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        # 别把容器留在后台跑
+        subprocess.run(["docker", "kill", container_name],
+                       capture_output=True, text=True, timeout=30)
+        return fail("docker run 超时（300 秒），容器已强制结束")
+
+    if proc.returncode != 0:
+        return fail(f"容器退出码 {proc.returncode}：{(proc.stderr or '')[-400:]}")
+
+    try:
+        out = json.loads((proc.stdout or "").strip().splitlines()[-1])
+    except (json.JSONDecodeError, IndexError):
+        return fail(f"容器输出不是合法 JSON：{(proc.stdout or '')[:200]!r}")
+    if not isinstance(out, dict):
+        # 合法 JSON 不等于我们要的东西 —— `"字符串"` / `[1,2]` 都能过 json.loads，
+        # 但下面立刻要 .get()。不挡的话这里会抛 AttributeError，
+        # 而调用方（precheck）会把异常当成"没验成"，报出来的原因却跟真实问题无关。
+        return fail(f"容器输出是 {type(out).__name__}，不是预期的对象：{str(out)[:120]!r}")
+
+    # ---- 4. 汇总观察到的 tool_call ----
+    observed = out.get("tool_calls") or []
+    results["tool_calls_observed"] = observed
+    if out.get("errors"):
+        results["errors"] = out["errors"]
+
+    all_tools = [t for t in observed if isinstance(t, dict) and t.get("name")]
+    bash_calls = [t for t in all_tools if t.get("name") == "Bash"]
+    write_calls = [t for t in all_tools if t.get("name") in ("Write", "Edit")]
+    network_tool_names = ["WebFetch", "WebSearch"]
+    network_calls = [t for t in all_tools if (
+        t.get("name") in network_tool_names or
+        (isinstance(t.get("input"), dict) and
+         any(k in str(t["input"]).lower() for k in ["url", "domain", "endpoint"]))
+    )]
+
+    results["summary"] = {
+        "total_tool_calls": len(all_tools),
+        "bash_calls": len(bash_calls),
+        "write_calls": len(write_calls),
+        "network_indicators": len(network_calls),
+    }
+
+    if bash_calls:
+        results["verdict"] = "REVIEW"
+        results["note"] = (f"skill 计划执行 {len(bash_calls)} 个 Bash 命令，"
+                           "请与 L3 静态分析结果交叉验证")
 
     return results
 
