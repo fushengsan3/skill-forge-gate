@@ -159,10 +159,76 @@ def _extract_github_repo(source_url: str) -> str:
 
 
 def _extract_github_fullname(source_url: str) -> str:
-    """从 GitHub source_url 提取 owner/repo"""
+    """从 GitHub source_url 提取 owner/repo。
+
+    **要剥掉 `.git` 后缀**：sources.json 里存的是 clone URL（`owner/repo.git`），
+    而 GitHub 的 API 路径是 `/repos/owner/repo` —— 带上 `.git` 会 404。
+    2026-10-05 实测：19 个已装 skill 里有 10 个因为这一条查不到上游 SHA，
+    白白当成"判断不了更新"。
+    """
     import re
-    m = re.match(r'https://github\.com/([^/]+/[^/]+)', source_url)
-    return m.group(1) if m else ""
+    m = re.match(r'https://github\.com/([^/]+/[^/#?]+)', source_url)
+    if not m:
+        return ""
+    return m.group(1)[:-4] if m.group(1).endswith(".git") else m.group(1)
+
+
+def fetch_latest_shas(installed: dict, branch_default: str = "main") -> dict:
+    """给**已安装**的 skill 查上游 HEAD 的 SHA，返回 {名字: sha}。
+
+    ## 为什么只查已装的
+
+    `watchdog.filter_skills` 只在"这个名字出现在 sources.json 里"时才用
+    latest_sha 去比对。给几百个**没装**的 skill 也各查一次 API，等于每周白白
+    烧掉几百次配额，而结果根本没人看。所以这里只遍历 install 过的那些 ——
+    通常十几个。
+
+    ## 之前为什么是坏的
+
+    这个函数以前**不存在**。fetcher 从来不产出 latest_sha，于是
+    `filter_skills` 里 `upstream = skill.get("latest_sha", "")` 恒为空串，
+    那个 `if upstream and ...` 分支永远进不去。后果有两个：
+
+      1. 面板上的"可更新"统计、"🔄 有更新"筛选、更新角标全是死的（恒为 0）
+      2. 更糟：已装 skill 即使上游真有新提交，也会落进"SHA 相同 → 排除"
+         被**静默丢掉**，用户从面板上根本看不到更新
+
+    查不到就**不放进返回字典**（而不是塞个空串）—— 让调用方能区分
+    "确认没更新"和"没查成"。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    targets = []
+    for name, info in (installed or {}).items():
+        if not isinstance(info, dict) or info.get("self"):
+            continue                      # 自己不查自己
+        url = info.get("url") or ""
+        full = info.get("full_name") or _extract_github_fullname(url)
+        if not full or "/" not in full:
+            continue
+        targets.append((name, full, info.get("branch") or branch_default))
+
+    def one(item):
+        name, full, branch = item
+        # 再剥一次 .git（full_name 字段可能是手写进 sources.json 的）
+        if full.endswith(".git"):
+            full = full[:-4]
+        url = f"https://api.github.com/repos/{full}/commits/{branch}"
+        result = api_get(url)
+        if not result["ok"]:
+            return name, ""
+        sha = (result.get("data") or {}).get("sha", "")
+        return name, sha
+
+    out = {}
+    if not targets:
+        return out
+    # 几个线程就够 —— 数量是"装过的 skill 数"，不是发现总数
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        for name, sha in ex.map(one, targets):
+            if sha:
+                out[name] = sha
+    return out
 
 
 def fetch_external_sources() -> list:
