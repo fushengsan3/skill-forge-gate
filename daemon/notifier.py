@@ -25,26 +25,49 @@ import os
 from pathlib import Path
 
 
+# 标题/正文通过**环境变量**交给 PowerShell，不拼进脚本。
+#
+# 为什么：脚本是用 `-Command` 执行的，而 PowerShell 的双引号字符串里
+# `$(...)` **会被求值**。原先写成 `CreateTextNode("{title}")` ——
+# 一个带 `$(calc)` 或带双引号的标题就是任意命令执行。
+# 而本模块自己有命令行入口（sys.argv[1] / [2] 就是这两个值），
+# 也就是说那条路径是直接可达的。
+#
+# 环境变量是**数据**，永远不会被当成代码解析，所以不需要转义 ——
+# 也就不会出现"转义写漏一个字符就破防"这种事。
+ENV_TITLE = "SKILL_FORGE_TOAST_TITLE"
+ENV_MESSAGE = "SKILL_FORGE_TOAST_MESSAGE"
+
+PS_TEMPLATE = '''
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+$textNodes = $template.GetElementsByTagName("text")
+$textNodes.Item(0).AppendChild($template.CreateTextNode($env:__ENV_TITLE__)) > $null
+$textNodes.Item(1).AppendChild($template.CreateTextNode($env:__ENV_MESSAGE__)) > $null
+$toast = [Windows.UI.Notifications.ToastNotification]::new($template)
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Skill Forge").Show($toast)
+'''
+
+
 def send_notification(title: str, message: str, panel_path: str = None):
     """发送 Windows 10/11 Toast 通知；给了 panel_path 就在通知后打开面板。
 
     注意：面板是**通知发出后自动打开**的，不是点击通知打开的。
     """
+    ps_script = (PS_TEMPLATE
+                 .replace("__ENV_TITLE__", ENV_TITLE)
+                 .replace("__ENV_MESSAGE__", ENV_MESSAGE))
 
-    ps_script = f'''
-[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
-$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
-$textNodes = $template.GetElementsByTagName("text")
-$textNodes.Item(0).AppendChild($template.CreateTextNode("{title}")) > $null
-$textNodes.Item(1).AppendChild($template.CreateTextNode("{message}")) > $null
-$toast = [Windows.UI.Notifications.ToastNotification]::new($template)
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Skill Forge").Show($toast)
-'''
+    env = os.environ.copy()
+    env[ENV_TITLE] = str(title)
+    env[ENV_MESSAGE] = str(message)
 
     try:
         subprocess.run(
             ["powershell", "-NoProfile", "-Command", ps_script],
-            capture_output=True, timeout=10
+            capture_output=True, timeout=10, env=env,
+            # 后台守护进程不该闪一个控制台窗口出来
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except Exception:
         pass

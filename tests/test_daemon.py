@@ -603,8 +603,15 @@ class TestNotifier(unittest.TestCase):
         self.assertEqual(cmd_args[2], "-Command")
         # ps_script 在 cmd_args[3]
         ps_script = cmd_args[3]
-        self.assertIn("Test Title", ps_script)
-        self.assertIn("Test Message", ps_script)
+        # 标题/正文**不该**出现在脚本里 —— 这段脚本是拿 -Command 执行的，
+        # PowerShell 双引号串里的 $(...) 会被求值，插值等于任意命令执行。
+        # 它们走环境变量：那是数据，不会被当代码解析。
+        self.assertNotIn("Test Title", ps_script)
+        self.assertNotIn("Test Message", ps_script)
+        self.assertIn("$env:SKILL_FORGE_TOAST_TITLE", ps_script)
+        env = mock_run.call_args[1].get("env") or {}
+        self.assertEqual(env.get("SKILL_FORGE_TOAST_TITLE"), "Test Title")
+        self.assertEqual(env.get("SKILL_FORGE_TOAST_MESSAGE"), "Test Message")
 
     @patch("subprocess.run")
     def test_send_notification_powershell_formatting(self, mock_run):
@@ -614,10 +621,14 @@ class TestNotifier(unittest.TestCase):
 
         mock_run.assert_called_once()
         ps_script = mock_run.call_args[0][0][3]
-        self.assertIn("Skill Forge Update", ps_script)
-        self.assertIn("3 new skills found", ps_script)
         self.assertIn("ToastNotificationManager", ps_script)
         self.assertIn("ToastText02", ps_script)
+        # 脚本是**固定模板** —— 一个字都不随入参变，所以不可能被注入
+        self.assertNotIn("Skill Forge Update", ps_script)
+        self.assertNotIn("3 new skills found", ps_script)
+        env = mock_run.call_args[1].get("env") or {}
+        self.assertEqual(env.get("SKILL_FORGE_TOAST_TITLE"), "Skill Forge Update")
+        self.assertEqual(env.get("SKILL_FORGE_TOAST_MESSAGE"), "3 new skills found")
 
     @patch("subprocess.run")
     def test_send_notification_handles_subprocess_error(self, mock_run):
@@ -653,7 +664,9 @@ class TestNotifier(unittest.TestCase):
         send_notification("CLI Title", "CLI Message")
         mock_run.assert_called_once()
         ps_script = mock_run.call_args[0][0][3]
-        self.assertIn("CLI Title", ps_script)
+        self.assertNotIn("CLI Title", ps_script)
+        env = mock_run.call_args[1].get("env") or {}
+        self.assertEqual(env.get("SKILL_FORGE_TOAST_TITLE"), "CLI Title")
 
     # ---- 实际 Windows 通知测试 (需要桌面环境) ----
     def test_real_windows_notification(self):
