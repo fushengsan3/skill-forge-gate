@@ -1,9 +1,6 @@
 ---
 name: skill-forge
 description: 从 GitHub 安装/更新/发现 skill 的自我迭代管理器，带 L1-L5 安全验证流水线。支持开机自启周度发现、面板浏览、沙箱审计。
-metadata:
-  type: skill-manager
-  self: true
 ---
 
 # Skill Forge
@@ -117,7 +114,9 @@ bash scripts/install.sh <url> [--name <name>] [--branch <branch>]
 ```
 安装成功后：
 - sources.json 自动更新
-- install-queue.json 自动清理已安装条目
+- install-queue.json 里的 pending 由 `daemon/installer.py` 的 `process_install_queue()` 清空
+  —— 那是**面板那条路**（`POST /install`）。走 `scripts/install.sh` 单独装一个 skill 时
+  **不会**清队列（它根本不读队列），别指望它顺带清掉
 
 ---
 

@@ -248,13 +248,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     <h3 data-lang="ext_sources_title">外部数据源管理</h3>
     <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px" data-lang="ext_sources_desc">添加 GitHub 仓库或 JSON API 地址以引入更多 skill 数据</p>
     <div class="row">
-      <input type="text" id="ext-url" placeholder="https://github.com/owner/repo 或 API URL">
+      <input type="text" id="ext-url" placeholder="返回 JSON 列表的地址（GitHub 仓库主页是 HTML，导不进来）">
       <input type="text" id="ext-label" placeholder="标签（可选）" style="max-width:140px">
       <button class="btn btn-primary btn-sm" id="btn-add-source" data-lang="add">添加</button>
     </div>
     <div class="source-list" id="ext-source-list"></div>
     <div style="margin-top:12px;font-size:12px;color:var(--text-dim)">
-      <span data-lang="ext_sources_file">配置文件：</span><code>templates/external_sources.json</code>
+      <span data-lang="ext_sources_file">这份列表存在浏览器本地；点「保存」会同时写进</span><code>templates/external_sources.json</code><span data-lang="ext_sources_file2">，周度扫描时守护进程读的是那个文件。</span>
       <button class="btn btn-ghost btn-sm" id="btn-save-sources" style="margin-left:8px" data-lang="save">💾 保存</button>
       <button class="btn btn-ghost btn-sm" id="btn-fetch-sources" data-lang="fetch_now">🔄 立即拉取</button>
     </div>
@@ -376,13 +376,16 @@ const LANG = {
     no_results: '本周无新发现', no_updates: '所有 skill 均无可用更新',
     ext_sources: '📂 外部数据源', filter_sources: '🔍 数据源筛选', add: '添加', save: '💾 保存', fetch_now: '🔄 立即拉取',
     ext_sources_title: '外部数据源管理', ext_sources_desc: '添加 GitHub 仓库或 JSON API 地址以引入更多 skill 数据',
-    ext_sources_file: '配置文件：',
+    ext_sources_file: '这份列表存在浏览器本地；点「保存」会同时写进',
+    ext_sources_file2: '，周度扫描时守护进程读的是那个文件。',
     view_detail: '查看详情', install_btn: '📦 一键安装', update_btn: '🔄 更新', queued: '已加入队列 ✓',
-    install_toast: '已加入安装队列', install_hint: '下次启动 Claude Code 时将提示安装',
-    sort_by: '排序', filter_by: '筛选',
+    install_toast: '已加入安装队列',
+    // 原先写「下次启动 Claude Code 时将提示安装」—— 那是假的：没有任何启动钩子
+    // 读这个队列。SKILL.md 里那句是给 Claude 的指令，不是可执行的东西。
+    install_hint: '在 Claude Code 里说「处理安装队列」即可安装',
     source_jeremylongshore: '社区精选', 'source_github-topic': 'GitHub Topic',
     source_claudskills: 'ClaudSkills', source_external: '外部源', source_search: '搜索',
-    rating_stars: '星', rating_score: '分', rating_quality: '质量',
+    rating_stars: 'Star', rating_score: '评分', rating_quality: '质量分', rating_match: '匹配',
     translate: '翻译', week_report: '周度发现报告', year: '年', month: '月', day: '日',
     verified: '来源可信', unverified: '来源未知', pending_check: '待预检',
     installed_skills: '已安装', loading: '加载中...', none_installed: '暂无已安装的 Skill', uninstall: '卸载',
@@ -434,11 +437,11 @@ const LANG = {
     ext_sources_title: 'External Data Sources', ext_sources_desc: 'Add GitHub repos or JSON API URLs to import more skills',
     ext_sources_file: 'Config:',
     view_detail: 'View', install_btn: '📦 Install', update_btn: '🔄 Update', queued: 'Queued ✓',
-    install_toast: 'Added to queue', install_hint: 'Will prompt install on next Claude Code launch',
-    sort_by: 'Sort', filter_by: 'Filter',
+    install_toast: 'Added to queue',
+    install_hint: 'Ask Claude Code to proceed with the install queue',
     source_jeremylongshore: 'Curated', 'source_github-topic': 'GitHub Topic',
     source_claudskills: 'ClaudSkills', source_external: 'External', source_search: 'Search',
-    rating_stars: 'stars', rating_score: 'score', rating_quality: 'quality',
+    rating_stars: 'stars', rating_score: 'score', rating_quality: 'quality', rating_match: 'match',
     translate: 'Translate', week_report: 'Weekly Discovery Report', year: '-', month: '-', day: '',
     verified: 'Trusted source', unverified: 'Unknown source', pending_check: 'Not checked yet',
     installed_skills: 'Installed', loading: 'Loading...', none_installed: 'No installed skills', uninstall: 'Uninstall',
@@ -524,11 +527,13 @@ function applyLang() {
 // 数据源定义 — 不同来源不同评级体系
 // ============================================================
 const SOURCE_CONFIG = {
-  'jeremylongshore': { label: '社区精选', icon: '🔷', color: 'jl', ratingLabel: '质量分', ratingFn: function(s) { return (s.score || 0).toFixed(0); } },
-  'github-topic':    { label: 'GitHub', icon: '⭐', color: 'gh', ratingLabel: 'Star', ratingFn: function(s) { return (s.stars || 0).toLocaleString(); } },
-  'claudskills':     { label: 'ClaudSkills', icon: '📊', color: 'cs', ratingLabel: '质量分', ratingFn: function(s) { return (s.qualityScore || s.score || 0).toFixed(0); } },
-  'external':        { label: '外部源', icon: '📡', color: 'ext', ratingLabel: '评分', ratingFn: function(s) { return (s.score || s.stars || 0).toFixed(0); } },
-  'search':          { label: '搜索', icon: '🔍', color: 'search', ratingLabel: '匹配', ratingFn: function(s) { return ((s.match_score || 0) * 100).toFixed(0) + '%'; } }
+  // ratingKey 而不是直接写死的标签 —— 原先这几行是硬编码中文，
+  // 切到英文界面时评级标签仍然是「质量分 / 匹配」，是唯一漏翻的地方。
+  'jeremylongshore': { label: '社区精选', icon: '🔷', color: 'jl', ratingKey: 'rating_quality', ratingFn: function(s) { return (s.score || 0).toFixed(0); } },
+  'github-topic':    { label: 'GitHub', icon: '⭐', color: 'gh', ratingKey: 'rating_stars', ratingFn: function(s) { return (s.stars || 0).toLocaleString(); } },
+  'claudskills':     { label: 'ClaudSkills', icon: '📊', color: 'cs', ratingKey: 'rating_quality', ratingFn: function(s) { return (s.qualityScore || s.score || 0).toFixed(0); } },
+  'external':        { label: '外部源', icon: '📡', color: 'ext', ratingKey: 'rating_score', ratingFn: function(s) { return (s.score || s.stars || 0).toFixed(0); } },
+  'search':          { label: '搜索', icon: '🔍', color: 'search', ratingKey: 'rating_match', ratingFn: function(s) { return ((s.match_score || 0) * 100).toFixed(0) + '%'; } }
 };
 
 // ============================================================
@@ -1166,7 +1171,7 @@ function skillCard(s) {
   headerLeft.appendChild(descP);
   header.appendChild(headerLeft);
   header.appendChild(mkEl('span', 'rating rating-' + srcCfg.color,
-    srcCfg.icon + ' ' + srcCfg.ratingFn(s) + ' ' + srcCfg.ratingLabel));
+    srcCfg.icon + ' ' + srcCfg.ratingFn(s) + ' ' + t(srcCfg.ratingKey)));
   card.appendChild(header);
 
   // ---------- 元信息 ----------

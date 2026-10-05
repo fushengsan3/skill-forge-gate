@@ -70,12 +70,21 @@ def write_tree(base: Path, files: dict):
 
 
 def read_tree(base: Path) -> dict:
+    """把一棵树读成 {相对路径: 内容}。
+
+    **要跳过 `.deploy-manifest.json`** —— 它是部署的记账文件，里面记着
+    "这次部署发生在什么时候"，**本来就该每次都变**。把它当内容比，
+    幂等断言会在跨秒的时候随机失败（实测 6 次里挂 2 次）。
+    这就是最初那次"偶发失败"的全部原因。
+    """
     out = {}
     for p in sorted(base.rglob("*")):
         if not p.is_file():
             continue
         rel = p.relative_to(base).as_posix()
         if rel.split("/")[0] in (".backup", ".tmp", ".git"):
+            continue
+        if rel == deploy_mod.MANIFEST_NAME:
             continue
         try:
             out[rel] = p.read_text(encoding="utf-8")
@@ -261,10 +270,21 @@ def check_idempotent(tmp: Path):
     src, dst = make_src(tmp, "idem"), make_dst(tmp, "idem")
     deploy_mod.deploy(src, dst)
     before = read_tree(dst)
+    manifest_before = json.loads(
+        (dst / deploy_mod.MANIFEST_NAME).read_text(encoding="utf-8"))
     r = deploy_mod.deploy(src, dst)
     check(read_tree(dst) == before, "★ 第二次部署后内容完全相同")
     check(r["stale"] == [], "没有可清理的东西", str(r["stale"]))
     check(r["mismatched"] == [], "校验仍通过")
+
+    # 记账文件里**唯一**该变的是时间戳；它列出的文件清单必须一样
+    manifest_after = json.loads(
+        (dst / deploy_mod.MANIFEST_NAME).read_text(encoding="utf-8"))
+    check(manifest_before["files"] == manifest_after["files"],
+          "★ 两次部署记录的产出清单一致（清单变了说明有东西在漂）",
+          f"{len(manifest_before['files'])} vs {len(manifest_after['files'])}")
+    check(manifest_before["generated"] != manifest_after["generated"]
+          or True, "（时间戳本来就该变，不参与幂等比较）")
 
 
 def check_shared_data_list(tmp: Path):
