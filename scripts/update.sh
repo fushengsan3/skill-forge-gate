@@ -110,8 +110,8 @@ fi
 # 于是「一个从没跑过预检的 skill，从没有预检的路径重装进来」是条可行链路。
 # 更新路径甚至比安装更该拦：它要**覆盖**已经装好的东西。
 #
-# 判定与 install.sh 一致：REJECT / REVIEW 都拒（REVIEW 的定义是"需要人看一眼"，
-# 而这条脚本路径上没有那个人 —— 退回给 Claude，由它读报告再决定）。
+# 判定与 install.sh / daemon/precheck.py 一致：**只拒 REJECT**，REVIEW 不拦
+# （装上但标 partial）。别把 REVIEW 读成"被拦下了"。
 #
 # ⚠️ 必须在 `rm -rf "$TARGET_DIR"` **之前** —— 拒了就必须保证现有那份原封不动。
 PRECHECK_JSON=$(cd "$SKILL_FORGE" && python3 -m daemon.precheck \

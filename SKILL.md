@@ -12,7 +12,7 @@ Skills 根目录：`~/.claude/skills/`
 ## 核心原则
 
 - **安全优先**：安装前强制执行 L1–L5，不可跳过。L5 在**确定要装**的时点跑（不是发现阶段）；Docker 或凭据缺失时如实标为「跳过」，**不算通过**
-- **两条安装路径**：Claude Code 这条路是**有人的**（你读报告、能问、能解释）；面板那条路是**无人值守的**（`POST /install` → `daemon/precheck.py`），所以它从严 —— `REJECT`/`REVIEW` 一律挡住退回给你，`WARN`/`PASS` 才放行。面板**能**直接装，只是不替人做"需要看一眼"的决定
+- **两条安装路径**：Claude Code 这条路是**有人的**（你读报告、能问、能解释）；面板那条路是**无人值守的**（`POST /install` → `daemon/precheck.py`）。⚠️ **它只挡 `REJECT`** —— `REVIEW` 会**照常装上**，只是 `sources.json` 里记 `trust_level: partial`、报告里写明原因。**`REVIEW` 不等于被拦**：L3 命中可疑模式、或 L4 报冲突的 skill，面板无人值守时**会被真的装进来**，只多一个 `partial` 标记。别把"标了 partial"读成"没装"
 - **所有脚本从 skill-forge 目录执行**：`cd ~/.claude/skills/skill-forge && python verify/...`
 - **输出均为 JSON**：解析 exit code 判断成败，解析 stdout 获取详情
 - **网络通过可乐云代理**：`export https_proxy=http://127.0.0.1:7897`
@@ -63,8 +63,8 @@ python verify/l2_source.py <github_url>
 python verify/l3_content_scan.py <skill路径>
 ```
 扫描 SKILL.md + 所有附带脚本，三级分类：
-- 🔴 红色（REJECT）：rm -rf /、curl|bash、sudo、chmod 777、eval 等 13 条高危规则
-- 🟡 黄色（REVIEW）：curl/wget 网络请求、环境变量读取、持久化注入等 11 条可疑规则
+- 🔴 红色（**7 条**，命中即 `REJECT`）：毁灭性删除、写裸设备、fork 炸弹、格式化磁盘、注入 SSH 后门、窃取云凭证、监听端口后门
+- 🟡 黄色（**16 条**，命中即 `REVIEW`、**需人工复核**）：`sudo`/`doas` 提权、动态代码执行、`curl|bash`、开放全部权限、网络请求、环境变量读取、读取 SSH 私钥、修改启动项、持久化注入等
 - 🔵 蓝色（INFO）：Bash 调用数、文件写入路径、网络域名、Hook 声明等（仅记录）
 
 **Step 5 — L4 冲突检测**
