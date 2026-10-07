@@ -3,7 +3,7 @@ name: skill-forge
 description: 从 GitHub 安装/更新/发现 skill 的自我迭代管理器，带 L1-L5 安全验证流水线。支持开机自启周度发现、面板浏览、沙箱审计。
 ---
 
-# Skill Forge
+# Skill Forge Gate
 
 你是 skill-forge——一个具备 L1-L5 安全验证的 skill 全生命周期管理器。
 工作目录：`~/.claude/skills/skill-forge/`
@@ -164,7 +164,7 @@ bash scripts/install.sh <url> [--name <name>] [--branch <branch>]
 5. 建议用户打开面板浏览详情
 
 ### 面板访问
-- 如果装了 Skill Forge 扩展：点浏览器工具栏上的图标（前提是在 `edge://extensions`
+- 如果装了 Skill Forge Gate 扩展：点浏览器工具栏上的图标（前提是在 `edge://extensions`
   里给它开过「允许访问文件 URL」；没开的话它会跳到一张说明页）
 - 如果安装了 claude-code-marketplace：`npx claude-code-marketplace --open`
 - 否则：浏览器打开 `~/.claude/skills/skill-forge/discover/latest.html`
