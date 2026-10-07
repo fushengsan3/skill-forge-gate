@@ -14,12 +14,14 @@ discover/
 extension/
 daemon/last_scan.txt
 daemon/watchdog.log
+daemon/bridge.log
 daemon/translation_cache.json
 
 # ---- 密钥与个人配置：**绝不能提交** ----
 
 templates/.bridge-key
 templates/.bridge-keys-prev.json
+templates/.bridge-rotation.json
 templates/translate-config.json
 .env
 *.pem
@@ -56,3 +58,25 @@ venv/
 Thumbs.db
 desktop.ini
 *.swp
+
+# ---- 内部工作文档：**不发布**（2026-10-07 用户决定）----
+#
+# 这几份是**工作过程记录**，不是对外文档：
+#   · 存档-*      每轮的完整交代（含"我犯的错"、弱点分析、怎么绕过的细节）
+#   · 问题清单-*  逐条缺陷 + P0/P1/P2 分级 —— 等于一份"哪里有洞"的路线图
+#   · 明日计划-*  日常排期
+#   · PROGRESS.md 过期的进度快照
+#
+# 对外保留的是**设计文档**（`决策记录-2026-10-04.md`）和**部署说明**
+# （`安装部署说明.md`）—— 那两份是给外部读者看的。
+#
+# ⚠️ **这些文件仍然留在本地**（`git rm --cached` 只是取消跟踪，没有删盘）。
+# 上面的判断标准只问一句：**外部读者需要它吗？** 不需要的就不是仓库内容。
+#
+# ⚠️`.gitignore` 对**已经提交过**的文件无效 —— `存档-2026-10-05.md` 和
+# `PROGRESS.md` 曾经在提交里，光加这里拦不住，还得重写历史把它们摘掉。
+# （这正是"删文件 ≠ 删历史"那条老教训。）
+存档-*.md
+问题清单-*.md
+明日计划-*.md
+PROGRESS.md

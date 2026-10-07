@@ -80,7 +80,7 @@ def main():
 
         proc = subprocess.run(
             ["node", str(harness_dst), str(page)],
-            cwd=str(base), capture_output=True, text=True,
+            cwd=str(base), capture_output=True, text=True, errors="replace",
         )
         sys.stdout.write(proc.stdout)
         if proc.stderr.strip():

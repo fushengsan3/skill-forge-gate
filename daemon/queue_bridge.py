@@ -6,6 +6,7 @@
 import json
 import sys
 import time
+from datetime import datetime
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -48,7 +49,7 @@ class QueueHandler(BaseHTTPRequestHandler):
         if not is_local_origin(self.headers.get("Origin")):
             self._deny("origin not allowed")
             return
-        self._cors_reply(200, "")
+        self._cors_reply(200)
 
     def do_GET(self):
         if not self._authorized():
@@ -193,7 +194,19 @@ class QueueHandler(BaseHTTPRequestHandler):
     def _handle_save_queue(self, data):
         try:
             QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            # 合并写入：保留已有的 history/last_processed，只更新 pending
+            # 合并写入：**只更新 pending**，history/last_processed 一律以盘上的为准。
+            #
+            # ## 为什么面板传来的那两个字段被丢掉（2026-10-06 用户拍板：保留丢弃）
+            #
+            # 面板是**渲染不受信内容的地方**，而这个进程是唯一能删本地文件的东西。
+            # 让页面写 history 等于让页面改写"装过什么"的记录 ——
+            # 那是一条审计线索，不是 UI 状态。面板 POST 过来的
+            # `history: [] / last_processed: null` 只是它自己那份副本的默认值，
+            # 采信它会把服务端的记录**清空**。
+            #
+            # 所以：**pending 听面板的（那是用户当下的意图），历史听磁盘的（那是记录）。**
+            # 对应地，面板现在也不再发这两个字段了（发了也没人读）。
+            # （问题清单 #22，冻结树复核 D5 —— 六项里**唯一**没被证伪的推荐。）
             existing = {}
             if QUEUE_FILE.exists():
                 try:
@@ -258,7 +271,11 @@ class QueueHandler(BaseHTTPRequestHandler):
         try:
             from daemon.installer import process_install_queue
             result = process_install_queue()
-            self._json_reply({"ok": True, **result})
+            # 队列文件损坏时 process_install_queue 会带回 error。
+            # 以前这里无条件 `ok: True`，面板于是弹出"安装完成" —— 而那条
+            # 队列里的东西一个都没动。"处理了 0 条"和"队列是空的"必须分开。
+            ok = not result.get("error")
+            self._json_reply({"ok": ok, **result})
         except Exception as e:
             self._json_reply({"ok": False, "error": str(e)})
 
@@ -276,6 +293,18 @@ class QueueHandler(BaseHTTPRequestHandler):
             skill_dir = safe_paths.resolve_within(SKILLS_DIR, name)
         except safe_paths.UnsafeName as e:
             self._json_reply({"ok": False, "error": "unsafe-name", "message": f"拒绝卸载：{e}"})
+            return
+
+        # `skill-forge` 是**完全合法**的名字，名字校验拦不住它 ——
+        # 但它指向的是**我们自己**。删掉它等于把管理器连同日志、队列、
+        # 部署留档一起删掉，而执行这条删除的正是它自己。
+        # 2026-10-06 之前这里没有这道判断（冻结树复核 #18 实测可达）。
+        if safe_paths.is_forge_dir(skill_dir, SKILLS_DIR):
+            self._json_reply({
+                "ok": False, "error": "self-uninstall-refused",
+                "message": "拒绝卸载 skill-forge 本体 —— 它正在运行。"
+                           "要卸它请手工处理，不要在面板里点。",
+            })
             return
 
         try:
@@ -315,7 +344,9 @@ class QueueHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _cors_reply(self, code, body):
+    def _cors_reply(self, code):
+        # ⚠️ 原先还有个 `body` 形参，从不写进响应（响应体恒为空）—— 2026-10-07 删除。
+        # 全仓库唯一的调用点传的是 `""`，没有任何地方真的用它回过内容。
         self.send_response(code)
         self._send_cors_headers()
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -323,7 +354,56 @@ class QueueHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def log_message(self, format, *args):
-        pass
+        """把所有 HTTP 响应记一行。
+
+        ## 为什么原来是 `pass`，以及为什么那个理由站不住
+
+        原意是"别往控制台刷屏"。但代价是：**鉴权失败也不留痕迹**。
+        `_deny()` 的 403（Origin 不合法 / 没带密钥 / 密钥不对）走的正是这里，
+        而这条路径的用途就是"发现有人在敲"。敲一百次和敲零次，日志里一模一样。
+
+        更糟的是服务用 `pythonw` 启动（`install-bridge-service.ps1` 优先找它）——
+        没有控制台、没有窗口，连 stderr 都是黑洞。所以"不刷屏"的实际效果是
+        **整个 bridge 一条日志都没有**。
+
+        ## 记什么、不记什么
+
+        记：请求行 + 状态码。这是排查"为什么面板说连不上"唯一需要的东西。
+        **不记**：`Origin` 的值、密钥头的值、请求体 —— 前两个是攻击者可控的输入，
+        请求体里可能有用户填的密钥。日志文件不像终端，它会被长期留在磁盘上。
+
+        ## 谁来看这个文件
+
+        `daemon/bridge.log`。跟 `watchdog.log` 并排，不设轮转 —— 一行几十字节，
+        而写入量由本机面板的点击次数决定，不是外部流量。
+        """
+        try:
+            line = format % args if args else format
+            code = ""
+            for tok in line.split():
+                if tok.isdigit() and len(tok) == 3:
+                    code = tok
+                    break
+            # ⚠️ 必须走 getattr，不能直接读 self.command / self.path。
+            #
+            # **请求行本身非法时**（400 Bad request syntax / 505 版本不支持），
+            # `parse_request()` 在给 self.command / self.path 赋值**之前**就调了
+            # `send_error()`，而 send_error 正是走到这里。直接读会抛 AttributeError，
+            # 再被下面那个 except 吞掉 —— 结果是**最该被记下来的那种请求，一条都没有**：
+            # 一个探测 127.0.0.1:18970 的扫描器会在日志里完全隐形。
+            # （2026-10-06 冻结树复核 #4：起真实服务器发畸形请求行复现，日志 0 行。）
+            method = getattr(self, "command", None) or "<非法请求行>"
+            raw_path = getattr(self, "path", None)
+            where = raw_path.split("?")[0] if raw_path else "<未解析到路径>"
+            # 只记方法 + 路径 + 状态码；查询串和请求体一概不碰
+            log_file = SKILL_ROOT / "daemon" / "bridge.log"
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
+                        f"{method} {where} {code or '???'}\n")
+        except Exception:
+            # 记日志失败绝不能把响应带崩 —— 这是日志，不是功能。
+            pass
 
 
 def start_bridge(allow_reuse: bool = True):

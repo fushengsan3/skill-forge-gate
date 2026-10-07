@@ -138,20 +138,26 @@ def run_weekly_scan():
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(categorized, f, ensure_ascii=False, indent=2)
 
-    # 4.5 轮换 bridge 密钥。
+    # 4.5 轮换 bridge 密钥（**每 4 个扫描周期一次**，不是每次）。
     #
     # **必须在生成面板之前** —— 顺序反了的话，新面板里注入的还是刚被作废的那把，
     # 于是用户下次打开面板就 403。
     #
-    # 旧密钥会进宽限期（GRACE_DAYS=14，大于一个扫描周期），
+    # 旧密钥会进宽限期（GRACE_DAYS=35，大于轮换间隔 4 周），
     # 所以此刻已经开着的面板不会当场失效。
+    #
+    # 判断"该不该换"只有 rotate_if_due 一处 —— 别在这里自己算周期数。
     try:
-        from daemon.bridge_auth import rotate as rotate_bridge_key
-        # 必须把本进程的 SKILL_ROOT 传进去。不传的话 rotate 会用 bridge_auth
+        from daemon.bridge_auth import rotate_if_due
+        # 必须把本进程的 SKILL_ROOT 传进去。不传的话它会用 bridge_auth
         # 自己写死的绝对路径 —— 而测试会直接调用 run_weekly_scan，
         # 于是"跑一遍测试"就等于"轮换一次用户真实的密钥"。
-        rotate_bridge_key(root=SKILL_ROOT)
-        log("bridge 密钥已轮换，旧密钥进入宽限期")
+        res = rotate_if_due(root=SKILL_ROOT)
+        if res["rotated"]:
+            log(f"bridge 密钥已轮换（每 {res['every']} 个扫描周期一次），旧密钥进入宽限期")
+        else:
+            log(f"bridge 密钥本次不轮换：距上次轮换 {res['scans_since_rotate']}/{res['every']} "
+                f"个周期，还有 {res['next_rotation_in']} 次扫描")
     except Exception as e:
         # 轮换失败不该拖垮整轮扫描：旧密钥仍然有效，最坏是这次没换。
         # 但要在日志里留痕，否则"以为在轮换其实一直没换"会静默存在。
@@ -186,14 +192,21 @@ def run_weekly_scan():
 
 
 def load_installed_skills() -> dict:
-    """从 sources.json 加载已安装 skill 列表"""
+    """从 sources.json 加载已安装 skill 列表。
+
+    返回空字典在本函数里有个**很重的含义**：调用方拿它判断
+    "这个 skill 装过没有"，空 == 一个都没装 == **现有 skill 会被全部报成"新发现"**。
+    所以读不出来时必须留痕 —— 与"文件不存在"（那才是真的没装）分开记。
+    """
     sources_file = SKILL_ROOT / "sources.json"
     if not sources_file.exists():
         return {}
     try:
         with open(sources_file, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        log(f"sources.json 存在但解析失败（{type(e).__name__}）—— "
+            "本次扫描会把已安装的 skill 误报成「新发现」")
         return {}
 
 
@@ -378,9 +391,28 @@ def main():
             time.sleep(SNOOZE_INTERVAL)
             if try_start():
                 return
-        else:  # 跳过本周
+        elif choice == IDABORT:  # 跳过本周
             log("用户选择跳过本周")
             timestamp_file.write_text(datetime.now().isoformat())  # 标记已跳过
+            return
+        else:
+            # ⚠️ 这里**绝不能**当成「用户选择跳过本周」。
+            #
+            # 走到这里的是「**对话框根本没弹出来**」：`MessageBoxW` 创建失败时
+            # 返回 **0**。而 watchdog 是**任务计划**拉起的 —— 那种会话里未必有
+            # 可交互桌面，弹框失败是真实可能的。
+            #
+            # 以前这个分支是裸 `else`，把那个 0 和"用户点了 Abort"混成一件事，
+            # 于是后果是：**静默标记已跳过 → 7 天不再扫描**，
+            # 而日志里写的是"用户选择跳过本周" —— 一句谎话，
+            # 而且是一句会让人以为"是用户自己决定的"的谎话。
+            #
+            # 2026-10-07 实测确认：choice = 0 / -1 以前都会走到写标记那一步。
+            #
+            # 现在的处置：这次不扫（确实做不成），但**不写跳过标记** ——
+            # 下次触发时还会再试。少扫一次是小事，静默停摆七天是大事。
+            log(f"对话框返回了意外的值 {choice}（0 = 弹框创建失败）——"
+                "本次不扫描，但**不**标记已跳过，下次仍会尝试")
             return
 
 

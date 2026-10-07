@@ -4,7 +4,6 @@
 使用可乐云代理访问 translate.googleapis.com
 """
 import json
-import os
 import urllib.request
 import urllib.parse
 from datetime import datetime
@@ -13,6 +12,24 @@ from pathlib import Path
 PROXY = "http://127.0.0.1:7897"
 SKILL_ROOT = Path.home() / ".claude" / "skills" / "skill-forge"
 CACHE_FILE = SKILL_ROOT / "daemon" / "translation_cache.json"
+LOG_FILE = SKILL_ROOT / "daemon" / "watchdog.log"
+
+
+def log(msg: str):
+    """记一行到与 installer / watchdog 同一个日志文件。
+
+    **这个模块以前一处日志都没有**，而它有三种结果长得一模一样：
+    AI 成功、AI 失败后回退 Google、两个后端都失败后留空。
+    用户选了 AI、实际每次都在走 Google —— 在扫描报告里完全看不出来。
+    """
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] [translate] {msg}\n")
+    except OSError:
+        # 日志写不进去，不该让翻译（连带发现新 skill 的主流程）失败。
+        pass
 
 
 def _api_translate(text: str) -> str:
@@ -32,7 +49,11 @@ def _api_translate(text: str) -> str:
                 if segment[0]:
                     sentences.append(segment[0])
             return "".join(sentences)
-    except Exception:
+    except Exception as e:
+        # 只记异常的**类型**，不记 e 全文 —— 理由同 translate_ai.py:107：
+        # 有些库会把请求头（含密钥）印进错误里。
+        # 以前这里是完全无声的：`return ""` 与"这条描述本来就是空的"无法区分。
+        log(f"Google 后端失败：{type(e).__name__}")
         return ""
 
 
@@ -65,9 +86,10 @@ def _translate_one(text: str, cfg: dict):
         try:
             from daemon import translate_ai
             return translate_ai.translate(text, cfg.get("model", ""), cfg.get("prompt", "")), "ai"
-        except Exception:
-            # 静默回退。不往上抛 —— 见上面的理由。
-            pass
+        except Exception as e:
+            # 回退不往上抛 —— 见上面的理由。但**要留一行痕迹**：
+            # "选了 AI、其实走了 Google"以前在任何输出里都看不出来。
+            log(f"AI 后端失败，本轮回退 Google：{type(e).__name__}")
         return _api_translate(text), "google"
 
     return _api_translate(text), "google"
@@ -119,6 +141,11 @@ def translate_skills(skills: list) -> list:
         # AI 后端是计费的，没必要拖慢。
         if used == "google":
             time.sleep(0.3)
+
+    # 留空也是一种结果，不能只有"没报错"这一个信号
+    blank = sum(1 for i, _ in to_translate if not (skills[i].get("description_zh") or "").strip())
+    if blank:
+        log(f"有 {blank}/{len(to_translate)} 条两个后端都没译出来，description_zh 已留空")
 
     _save_cache(cache)
     return skills

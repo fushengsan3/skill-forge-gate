@@ -319,7 +319,7 @@ def run_node_harness(tmp: Path, panel: Path):
 
     proc = subprocess.run(
         [node, str(harness), str(out / "background.js"), panel.resolve().as_uri()],
-        capture_output=True, text=True,
+        capture_output=True, text=True, errors="replace",
     )
     for line in proc.stdout.splitlines():
         line = line.strip()

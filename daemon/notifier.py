@@ -22,7 +22,6 @@ import subprocess
 import sys
 import json
 import os
-from pathlib import Path
 
 
 # 标题/正文通过**环境变量**交给 PowerShell，不拼进脚本。

@@ -59,7 +59,7 @@ DATA = {
 
 def git(cwd, *args):
     return subprocess.run(["git", "-C", str(cwd)] + list(args),
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, errors="replace")
 
 
 def write_tree(base: Path, files: dict):
@@ -126,6 +126,8 @@ def main():
         check_guards(tmp)
         check_idempotent(tmp)
         check_shared_data_list(tmp)
+        check_untracked_guard(tmp)
+        check_undecodable_git_output(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -306,6 +308,131 @@ def check_shared_data_list(tmp: Path):
           "is_data 能匹配文件本身")
     check(not deploy_mod.is_data("daemon/watchdog.py", [("discover", "存档")]),
           "is_data 不误伤无关文件")
+
+
+def check_untracked_guard(tmp: Path):
+    """未跟踪的新文件必须**拦住部署**，而不是静默漏掉。
+
+    这一段钉的是 2026-10-05 真发生的事：新增的 `verify/llm_auth.py` 没 `git add`，
+    部署照跑、"逐字节校验通过"，运行时却在 import 处崩。
+
+    根子在于 `collect_source_files()` 拿 `git ls-files` 当"什么算代码"，
+    而未跟踪的文件在它眼里不存在；末尾的校验遍历的又是同一份清单 ——
+    自己是自己的判据，所以永远自洽、永远报成功。
+    """
+    print("--- 8. 未跟踪的新文件：拦住部署，而不是静默漏掉 ---")
+    src, dst = make_src(tmp, "untr"), make_dst(tmp, "untr")
+
+    # 新写的模块，还没 git add —— 正是那次事故的形状
+    newfile = "verify/newmod.py"
+    (src / newfile).parent.mkdir(parents=True, exist_ok=True)
+    (src / newfile).write_text("# 新模块\n", encoding="utf-8")
+
+    # collect_untracked 返回 (集合, 失败原因) —— 见那里关于"空集合含义太强"的注释
+    untr_src, untr_err = deploy_mod.collect_untracked(src)
+    check(newfile in untr_src, f"collect_untracked 认得出 {newfile}")
+    check(untr_err == "", "查询成功时失败原因为空", repr(untr_err))
+    untr_root, _ = deploy_mod.collect_untracked(ROOT)
+    check("verify/llm_auth.py" not in untr_root,
+          "真实仓库里 llm_auth.py 已被跟踪（这条防的是它又被退回未跟踪）")
+
+    # dry-run 不拦 —— 它就是拿来看会怎么样的 —— 但必须如实报出来
+    r = deploy_mod.deploy(src, dst, dry_run=True)
+    check(r["untracked_source"] == [newfile],
+          "★ dry-run 把未跟踪文件列进报告", str(r["untracked_source"]))
+
+    before = read_tree(dst)
+    backups_before = sorted(p.name for p in (dst / ".backup").glob("*")) \
+        if (dst / ".backup").is_dir() else []
+    try:
+        deploy_mod.deploy(src, dst)
+        check(False, "★ 有未跟踪文件时拒绝部署")
+    except SystemExit as e:
+        check(True, "★ 有未跟踪文件时拒绝部署", str(e).splitlines()[0][:60])
+        check(newfile in str(e), "拒绝信息里点名了那个文件（不然还得自己找）")
+
+    check(read_tree(dst) == before, "★ 拒绝时目标目录一个字节没动")
+    backups_after = sorted(p.name for p in (dst / ".backup").glob("*")) \
+        if (dst / ".backup").is_dir() else []
+    check(backups_after == backups_before,
+          "★ 拒绝发生在留档之前（不留半截部署的痕迹）")
+
+    # --allow-untracked：明知故行。放行，但那个文件仍然**不该**被拷过去 ——
+    # 它是"这次跳过的"，不是"悄悄带上的"，两回事。
+    deploy_mod.deploy(src, dst, allow_untracked=True)
+    check(not (dst / newfile).exists(),
+          "--allow-untracked 放行，但未跟踪文件仍不被部署（是跳过，不是带上）")
+    check(read_tree(dst).get("daemon/watchdog.py") == "# watchdog v1\n",
+          "放行时其余文件照常同步")
+
+    # git add 之后：不该再拦，而且文件真的过去了
+    git(src, "add", newfile)
+    deploy_mod.deploy(src, dst)
+    check((dst / newfile).is_file(), "★ git add 之后，新文件真的被部署了")
+
+    # .gitignore 里的未跟踪文件不算 —— .gitignore 就是"不该过去"的那份清单，
+    # 拦它会让"本地草稿"这类正当用法被误伤。
+    (src / ".gitignore").write_text("scratch.py\n", encoding="utf-8")
+    git(src, "add", ".gitignore")
+    (src / "scratch.py").write_text("# 本地草稿，不该部署\n", encoding="utf-8")
+    check("scratch.py" not in deploy_mod.collect_untracked(src)[0],
+          "★ 被 .gitignore 排除的文件不算未跟踪（那是「确实不该部署」，不是漏了）")
+
+    # 数据项里的未跟踪文件也不算 —— 数据本来就不部署，它不属于"会漏掉的代码"
+    (src / "keepme").mkdir(parents=True, exist_ok=True)
+    (src / "keepme" / "new-thing.json").write_text("{}", encoding="utf-8")
+    r2 = deploy_mod.deploy(src, dst, dry_run=True)
+    check("keepme/new-thing.json" not in r2["untracked_source"],
+          "★ 数据清单里的未跟踪文件不触发拦截（它本来就不部署）")
+
+
+def check_undecodable_git_output(tmp: Path):
+    print("--- 9. ★ git 输出解不出来 → 闸门必须 fail-closed ---")
+    # 形状来自实测：`text=True` 解码失败时 subprocess **不抛**，它让 stdout 变 None、
+    # returncode 变成错的 1。老代码用 `and proc.stdout` 一短路，就把"解不出来"
+    # 读成了"没有输出"，静默退回目录遍历 —— 而屏幕上照样打"✅ 校验通过"。
+    # 这里直接打桩 _git_z，验的是**上层有没有把"查不成"和"没有"分开**。
+    src, dst = make_src(tmp, "undec"), make_dst(tmp, "undec")
+
+    real_git_z = deploy_mod._git_z
+    bad = (None, "git 输出不是 UTF-8（第 12 字节）", True)
+
+    def fake_bad(src_arg, args, timeout=30):
+        if "ls-files" in args:
+            return bad
+        return real_git_z(src_arg, args, timeout=timeout)
+
+    deploy_mod._git_z = fake_bad
+    try:
+        files, err = deploy_mod.collect_untracked(src)
+        check(files == set() and err != "",
+              "★ 解不出来时**不是**安静地返回空集合，而是带回一个原因", repr((files, err)))
+        check("UTF-8" in err, "原因说清了是什么毛病（而不是笼统的「失败了」）", err)
+
+        # 清单来源那句要如实写"查不成"，不能伪装成"没找到 git"
+        _, method = deploy_mod.collect_source_files(src)
+        check("没找到 git" not in method,
+              "★ 退路的说明不把「解不出来」伪装成「没找到 git」", method)
+
+        r = deploy_mod.deploy(src, dst, dry_run=True)
+        check(r["untracked_error"] != "",
+              "dry-run 的报告里带着这个原因（不是无声无息）", repr(r["untracked_error"]))
+
+        # 真部署必须拒绝 —— 这才是 fail-closed
+        try:
+            deploy_mod.deploy(src, dst, dry_run=False)
+            check(False, "★ 真部署被拒绝（查不成不能当成「没有」）", "居然照常部署了")
+        except SystemExit as e:
+            check("拒绝部署" in str(e), "★ 真部署被拒绝，且说明原因", str(e)[:60])
+
+        # --allow-untracked 是明知故行，仍然放行
+        try:
+            deploy_mod.deploy(src, dst, dry_run=False, allow_untracked=True)
+            check(True, "★ --allow-untracked 仍然放行（明知故行，不是死角）")
+        except SystemExit as e:
+            check(False, "--allow-untracked 应当放行", str(e)[:80])
+    finally:
+        deploy_mod._git_z = real_git_z
 
 
 if __name__ == "__main__":

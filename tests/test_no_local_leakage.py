@@ -159,8 +159,13 @@ def scan_text(text: str, rules):
 # ---------------------------------------------------------------- 扫描
 
 def git(*args):
+    # errors="replace"：解码失败时 subprocess 不抛异常，它把 stdout 变成 None。
+    # 对**这个文件**来说尤其要紧 —— 坏掉的话，`cat-file -p` 拿到的是 None，
+    # 于是「扫过的 blob」会静默变少，而结论照样是"没发现泄漏"。
+    # 这里可以放心用 replace：本文件找的都是 ASCII 形态的特征
+    # （sk-ant-… / 用户名 / 绝对路径），而 ASCII 字节在 replace 下原样保留。
     return subprocess.run(["git", "-C", str(ROOT)] + list(args),
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, errors="replace")
 
 
 def is_repo() -> bool:
@@ -192,7 +197,7 @@ def scan_history(rules):
     """
     blobs = subprocess.run(
         ["git", "-C", str(ROOT), "rev-list", "--objects", "--all"],
-        capture_output=True, text=True).stdout.splitlines()
+        capture_output=True, text=True, errors="replace").stdout.splitlines()
     problems = []
     for line in blobs:
         parts = line.split(" ", 1)
@@ -202,11 +207,11 @@ def scan_history(rules):
         if path.replace("\\", "/") in ALLOWLIST:
             continue
         t = subprocess.run(["git", "-C", str(ROOT), "cat-file", "-t", sha],
-                           capture_output=True, text=True).stdout.strip()
+                           capture_output=True, text=True, errors="replace").stdout.strip()
         if t != "blob":
             continue
         content = subprocess.run(["git", "-C", str(ROOT), "cat-file", "-p", sha],
-                                 capture_output=True, text=True).stdout
+                                 capture_output=True, text=True, errors="replace").stdout
         for name, why, frag in scan_text(content, rules):
             problems.append((path, name, why, frag))
     return len(blobs), problems
@@ -217,6 +222,7 @@ def check_ignored():
     must_ignore = [
         "templates/.bridge-key",
         "templates/.bridge-keys-prev.json",
+        "templates/.bridge-rotation.json",
         "templates/translate-config.json",
         "daemon/translation_cache.json",
         "daemon/last_scan.txt",

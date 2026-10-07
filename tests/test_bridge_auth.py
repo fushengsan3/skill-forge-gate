@@ -11,9 +11,11 @@ bridge 鉴权回归测试（R7）。
 所以不会碰到用户真实的安装、队列或密钥文件。
 """
 import json
+import socket
 import sys
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
@@ -85,7 +87,10 @@ def main():
     print("bridge 鉴权回归测试（R7）")
     print("=" * 60)
     print(f"临时端口: {port}")
-    print(f"密钥文件: {auth.KEY_FILE}")
+    # ⚠️ 必须走 `_key_paths()`，不能用某个写死 SKILL_ROOT 的模块级常量 ——
+    # 测试把 SKILL_ROOT 指到了临时目录，而那种常量**仍指向用户真实那把密钥**，
+    # 打印出来会让人以为测试动的是真实文件。（KEY_FILE 常量已因此删除。）
+    print(f"密钥文件: {auth._key_paths(auth.SKILL_ROOT)[0]}")
     print("")
 
     try:
@@ -219,6 +224,148 @@ def main():
               bool(box) and not th.is_alive(),
               "线程还挂着 = 死锁" if th.is_alive() else str(box)[:40])
         check("且 key 文件被建出来了", (fresh / "templates" / ".bridge-key").exists())
+
+        # 6j. ★ 轮换计时：**每 ROTATE_EVERY 个扫描周期一次**，不是每次
+        #     （2026-10-05 用户定）。旧行为是"每轮扫描都换"，会让
+        #     "手里拿着旧密钥的已打开面板"这个窗口频繁出现。这一节就是钉住它别回来。
+        check("★ 轮换间隔是 4 个扫描周期", auth.ROTATE_EVERY == 4, str(auth.ROTATE_EVERY))
+        check("★ 宽限期大于轮换间隔（否则旧面板会在下次轮换之前先失效）",
+              auth.GRACE_DAYS > auth.ROTATE_EVERY * 7,
+              f"GRACE_DAYS={auth.GRACE_DAYS} 天 vs 间隔 {auth.ROTATE_EVERY * 7} 天")
+        check("rotate 之后计时归零（任何一次轮换都重启计时）",
+              auth.rotation_state()["scans_since_rotate"] == 0,
+              json.dumps(auth.rotation_state(), ensure_ascii=False))
+
+        key_before_cycle = auth.get_key()
+        for i in range(auth.ROTATE_EVERY - 1):
+            res = auth.rotate_if_due()
+            check(f"第 {i + 1}/{auth.ROTATE_EVERY} 次扫描**不**轮换",
+                  res["rotated"] is False and auth.get_key() == key_before_cycle,
+                  json.dumps(res, ensure_ascii=False))
+
+        res = auth.rotate_if_due()
+        check(f"★ 第 {auth.ROTATE_EVERY} 次扫描才轮换", res["rotated"] is True,
+              json.dumps(res, ensure_ascii=False))
+        check("且密钥真的换了", auth.get_key() != key_before_cycle)
+        check("且计时重新归零", auth.rotation_state()["scans_since_rotate"] == 0)
+        check("且下一轮还差 ROTATE_EVERY 次",
+              auth.rotation_state()["next_rotation_in"] == auth.ROTATE_EVERY,
+              json.dumps(auth.rotation_state(), ensure_ascii=False))
+
+        # 计时文件损坏 → 宁可推迟一次轮换，也**不要**退化成"每次扫描都换"。
+        # 后者比不轮换更糟：面板会反复失效。
+        auth._state_path().write_text("{ 这不是 JSON", encoding="utf-8")
+        res = auth.rotate_if_due()
+        check("★ 计时文件损坏时不轮换（否则会退化成每次扫描都换）",
+              res["rotated"] is False, json.dumps(res, ensure_ascii=False))
+
+        # 计时也必须落在调用方指定的 root 里 —— 理由同 6h，
+        # 否则"跑一遍测试"就会推进用户真实的轮换计时。
+        auth.rotate_if_due(root=other)
+        check("★ rotate_if_due(root=X) 把计时写到 X 下面",
+              (other / "templates" / ".bridge-rotation.json").exists())
+
+        # --- 7. ★ 畸形请求行也必须留痕（2026-10-06 冻结树复核 #4）---
+        #
+        # 400 / 505 是**唯一**会在 self.command / self.path 被赋值**之前**
+        # 就发出去的响应（parse_request 直接调 send_error），所以它曾经是这份
+        # 日志的唯一盲区 —— 而它恰恰是"有人在扫这个端口"最直接的信号：
+        # 一个探测 127.0.0.1:18970 的扫描器会在日志里完全隐形。
+        #
+        # 只能用裸 socket 发：任何 HTTP 客户端都不会构造出非法的请求行。
+        log_path = tmpdir / "daemon" / "bridge.log"
+        before = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
+        s = socket.create_connection(("127.0.0.1", port), timeout=5)
+        try:
+            s.sendall(b"GARBAGE-NOT-A-REQUEST-LINE\r\n\r\n")
+            s.recv(4096)
+        finally:
+            s.close()
+        time.sleep(0.3)   # 日志在响应之后才写，给它一点时间
+        after = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
+        fresh = after[len(before):]
+        check("★ 畸形请求行也留下了日志（400/505 曾是这份日志的唯一盲区）",
+              "400" in fresh or "505" in fresh, repr(fresh[:140]))
+        check("★ 记的是「非法请求行」，而不是崩掉或空着",
+              "非法请求行" in fresh, repr(fresh[:140]))
+
+        # --- 8. ★ 面板写不动 history / last_processed（D5）---
+        #
+        # 面板是**渲染不受信内容**的地方，而 bridge 是**唯一能删本地文件**的进程。
+        # 让页面 POST 的 history 生效，等于让页面清空"装过什么"的记录 ——
+        # 那是一条审计线索，不是 UI 状态。
+        # 分工：pending 听面板的（用户当下的意图），历史听磁盘的（记录）。
+        queue_file = tmpdir / "install-queue.json"
+        queue_file.write_text(json.dumps({
+            "version": 1,
+            "pending": [],
+            "history": [{"skill": "trusted-record"}],
+            "last_processed": "2026-01-01T00:00:00Z",
+        }, ensure_ascii=False), encoding="utf-8")
+        real_queue_file = qb.QUEUE_FILE
+        qb.QUEUE_FILE = queue_file
+        try:
+            # POST 到未识别的路径会落到 _handle_save_queue（面板走的就是这条）
+            code, _, body = call(port, "POST", "/",
+                                 # 用**当前**密钥：上面的轮换用例已经把 key 换过了
+                                 {"Origin": "null", KEY_HEADER: auth.get_key(),
+                                  "Content-Type": "application/json"},
+                                 {"version": 1,
+                                  "pending": [{"skill_name": "x"}],
+                                  "history": [], "last_processed": None})
+            after = json.loads(queue_file.read_text(encoding="utf-8"))
+        finally:
+            qb.QUEUE_FILE = real_queue_file
+
+        # ⚠️ 本文件的 check 签名是 (name, ok, detail) —— 与其他测试文件相反
+        check("面板能正常保存队列（这条路径没被一起关掉）",
+              code == 200 and json.loads(body or "{}").get("ok") is True,
+              f"HTTP {code} {body[:60]}")
+        check("★ pending 听面板的（那是用户当下的意图）",
+              after.get("pending") == [{"skill_name": "x"}],
+              str(after.get("pending"))[:60])
+        check("★★ 面板传来的 history=[] **没能清空**服务端记录",
+              after.get("history") == [{"skill": "trusted-record"}],
+              str(after.get("history"))[:70])
+        check("★★ last_processed 同样以磁盘为准（页面改不动审计线索）",
+              after.get("last_processed") == "2026-01-01T00:00:00Z",
+              str(after.get("last_processed")))
+
+        # --- 9. ★ 密钥文件存在但读不出 → 绝不新建（清单 #24）---
+        #
+        # 这条守卫的代价**不对称**，所以它值得一条专门的用例：
+        # 读失败时新建一把，会**静默作废**现有密钥（而且不进宽限期表）——
+        # 已打开的面板全部失联，日志里却没有一句"发生过什么"。
+        # 压测实测过：374 次并发里 9 次 403，现场是"5 把不同的密钥同时在飞"。
+        #
+        # 触发手法：在密钥的路径上放一个**目录**。它 stat() 拿得到、read_text() 抛
+        # OSError（IsADirectoryError），正好落在"存在但读不出"那一支 ——
+        # 比造一个真的读不出来的文件可靠得多（Windows 上要独占锁/ACL/悬空链接）。
+        kroot = tmpdir / "unreadable-root"
+        (kroot / "templates").mkdir(parents=True)
+        blocked = auth._key_paths(kroot)[0]
+        blocked.mkdir()          # 目录：读不出，但确实"存在"
+
+        raised = None
+        try:
+            auth.get_or_create_key(root=kroot)
+        except auth.KeyUnavailable as e:
+            raised = e
+        check("★ 密钥文件存在但读不出 → 抛 KeyUnavailable（**不**新建）",
+              raised is not None,
+              type(raised).__name__ if raised else "居然没抛 —— 说明它另造了一把")
+        check("★ 而且没有把原文件冲掉（那个目录还在）", blocked.is_dir())
+
+        # 同理：check_request 必须**拒绝**，而不是造一把新的去比。
+        real_root = auth.SKILL_ROOT
+        auth.SKILL_ROOT = kroot
+        try:
+            ok_req, why_req = auth.check_request({"Origin": "null", KEY_HEADER: "x"})
+        finally:
+            auth.SKILL_ROOT = real_root
+        check("★ check_request 在密钥读不出时拒绝（不是另造一把去比）",
+              ok_req is False and why_req == "key currently unreadable",
+              f"ok={ok_req} why={why_req!r}")
 
     finally:
         server.shutdown()

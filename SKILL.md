@@ -11,8 +11,8 @@ Skills 根目录：`~/.claude/skills/`
 
 ## 核心原则
 
-- **安全优先**：安装/更新前强制执行 L1-L4（L5 按需），不可跳过
-- **Claude Code 是唯一安装入口**：面板只能标记队列，不能直接安装
+- **安全优先**：安装前强制执行 L1–L5，不可跳过。L5 在**确定要装**的时点跑（不是发现阶段）；Docker 或凭据缺失时如实标为「跳过」，**不算通过**
+- **两条安装路径**：Claude Code 这条路是**有人的**（你读报告、能问、能解释）；面板那条路是**无人值守的**（`POST /install` → `daemon/precheck.py`），所以它从严 —— `REJECT`/`REVIEW` 一律挡住退回给你，`WARN`/`PASS` 才放行。面板**能**直接装，只是不替人做"需要看一眼"的决定
 - **所有脚本从 skill-forge 目录执行**：`cd ~/.claude/skills/skill-forge && python verify/...`
 - **输出均为 JSON**：解析 exit code 判断成败，解析 stdout 获取详情
 - **网络通过可乐云代理**：`export https_proxy=http://127.0.0.1:7897`
@@ -77,18 +77,48 @@ python verify/l4_conflict_detect.py <skill路径> ~/.claude/skills
 - 功能重叠（描述相似度 > 60%）
 - 系统盘写入（C:\、/etc 等 → 触发 Claude API 深度分析）
 
-**Step 6 — L5 沙箱审计（条件触发）**
-仅当以下任一条件满足时触发：
-- L3 出现黄色警告
-- L2 标记为 REVIEW
-- 来源不在信任列表（jeremylongshore/anthropics/secondsky/netresearch）
+**Step 6 — L5 沙箱审计（装前闸门）**
+
+在**已经确定要装这个 skill**、还没有落盘之前跑。触发条件就是"选定安装"这一个 ——
+不再有"L3 有黄才跑"之类的附加条件。
+
+为什么去掉那些条件：沙箱看的是**行为**（它打算调什么工具），而行为跟静态扫描出不出黄
+没有必然关系 —— 一份 L1–L4 全绿的 skill 一样可能在第一条提示下就 `rm -rf`。
+按静态结果决定要不要做行为审计，等于让被审对象自己决定要不要被审。
+
+两条安装路径在**同一时点**跑的是**同一个函数**：
+- Claude Code 这条路：就是你正在走的这步
+- 面板那条路：`POST /install` → `process_install_queue()` → `daemon/precheck.py::_l5`
+
+> ⚠️ 面板那条路处理的是**整个待装队列**，不是单个。排了 N 个就验 N 个，
+> L5 也是 N 次。这是当前行为，不是配置项。
+
 ```
 python verify/l5_sandbox.py <skill路径>
 ```
 加固容器内加载 skill（只读挂载 / 非 root / 能力全削 / 资源受限 / 跑完即毁）
 → 调 Claude API → 收集 tool_call 序列 → 报告**它计划**执行的操作。
 注意：这些调用**不会被真的执行**。你拿到的是「它想干什么」，不是执行结果。
-Docker 不可用时自动跳过，标记 "沙箱审计不可用"。
+Docker 不可用、或没拿到 AI 凭据时，这一层标 `SKIPPED`（原因写在报告里），不拦安装。
+
+> ⚠️ **跳过不是通过。** 报告汇总那句话把两者分开数：`4 层检查通过，1 层跳过（L5 沙箱）`。
+> 读成"5 层都过了"是错的 —— 一套永远跳过 L5 的部署，等于根本没有 L5。
+> 要看 L5 是否真在跑：`python -m verify.llm_auth`，看 `key_source` 是不是空的。
+
+> ⚠️ **verdict 是 `ERROR` 且理由写着"审计不完整"时，不要当成 skill 干净。**
+> 那是模型响应被截断或请求失败 —— 报告里都是「0 个工具调用」，但
+> 「没看到」和「没有」是两回事。这种情况下**重跑一次**再说。
+
+> **凭据来源按这个顺序挑**（判定只有一份，在 `verify/llm_auth.py`）：
+> 1. Windows 凭据管理器的 `SkillForge/ai-token`（面板 → 设置 → 密钥）→ `x-api-key`
+> 2. `ANTHROPIC_API_KEY` → `x-api-key`
+> 3. `ANTHROPIC_AUTH_TOKEN` → `Authorization: Bearer`
+>
+> 凭据管理器排第一是因为**环境变量是按进程注入的** —— 面板那条路上的 bridge 是常驻进程，
+> 由任务计划 / 注册表拉起，继承的是登录环境，**看不到**你在这个终端里 `export` 的变量。
+> 所以面板路径上，只有凭据管理器里的密钥能让 L5 跑起来。
+> 端点：`ANTHROPIC_BASE_URL` → Claude Code 配置 → `https://api.anthropic.com`。
+> 模型：`ANTHROPIC_MODEL` → Claude Code 配置的**快档** → `claude-haiku-4-5-20251001`（刻意不用贵档）。
 
 **Step 7 — 汇总安全报告**
 ```
@@ -99,7 +129,7 @@ Docker 不可用时自动跳过，标记 "沙箱审计不可用"。
 │  L2 来源：  ✅ PASS (⭐ 2,847, MIT)      │
 │  L3 内容：  ✅ PASS (0红 0黄 3蓝)        │
 │  L4 冲突：  ✅ PASS (无冲突)             │
-│  L5 沙箱：  ⏭ 跳过 (来源已信任)          │
+│  L5 沙箱：  ⏭ 跳过 (未配 AI 密钥)        │
 │                                         │
 │  综合判定：🟢 建议安装                    │
 │                                         │

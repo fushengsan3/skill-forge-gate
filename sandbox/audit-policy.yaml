@@ -1,71 +1,59 @@
-# Skill Forge — L5 审计策略
-# 定义沙箱中需要跟踪的系统调用和文件操作
+# Skill Forge — L5 静态审计策略
+#
+# ⚠️ 这份文件**只描述 L5 真正能做到的事**。由 `verify/audit_policy.py` 读取，
+#    L3（skill 文本）和 L5（模型声明的工具调用）都按它判定。
+#
+# ## 2026-10-06：删掉了一整段 syscall 审计
+#
+# 这里原先写着 `syscalls.monitor: [execve, open, openat, socket, connect, ...]`
+# 和一份 `report.fields: [timestamp, syscall, process_name, ...]`。
+# 那些**一个字都没生效**，而且不是"忘了接线"那么简单 —— 是**根本接不上**：
+#
+#   L5 跑的是「把 SKILL.md 当 prompt 发进容器，看模型**声明了**哪些工具调用」，
+#   它**从不执行 skill 里的任何脚本**。没有进程真的跑起来，就没有 syscall 可看。
+#
+# 它描述的威胁模型和 L5 的能力完全不匹配。而它读起来像"有这层防护" ——
+# 一份没人读的策略文件，比没有策略文件更糟。（冻结树复核 #15。）
+#
+# 容器的**真实加固**不在这份文件里，在 `verify/l5_sandbox.py` 的 `docker run` 参数上：
+# `--read-only`、`--cap-drop ALL`、`--no-new-privileges`、内存/CPU/pids 上限。
+# 那些是真的。这份文件管的是"看什么"，不是"关什么"。
 
 audit_rules:
-  # 系统调用审计 —— 任何超出预期的 syscall 都记录
-  syscalls:
-    monitor:
-      - execve         # 进程创建
-      - open           # 文件打开
-      - openat         # 文件打开（变体）
-      - write          # 文件写入
-      - unlink         # 文件删除
-      - unlinkat       # 文件删除（变体）
-      - rename         # 文件重命名
-      - chmod          # 权限修改
-      - chown          # 所有者修改
-      - socket         # 网络 socket 创建
-      - connect        # 网络连接
-      - sendto         # 网络发送
-      - bind           # 端口绑定
-
-  # 文件访问审计
   files:
-    # 任何对这些路径的访问都记录
+    # skill 文本、或模型声明的工具调用里出现这些路径 → 标黄，需人工看。
+    #
+    # 注意分工：`~/.aws/` `~/.gcloud/` `~/.azure/` 已经在 L3 的**红组**
+    # （硬编码规则「窃取云凭证」）里，命中直接 REJECT。下面列它们是为了让这份
+    # 策略成为"敏感位置"的**完整清单**，而不会改变那几条的严重级别 ——
+    # 策略文件**不决定红黄**，它只扩大覆盖面。
     sensitive_paths:
-      - /etc/
       - ~/.ssh/
       - ~/.aws/
       - ~/.gcloud/
       - ~/.azure/
+      - ~/.config/gcloud
       - ~/.kube/
       - ~/.docker/config.json
       - ~/.npmrc
       - ~/.pip/pip.conf
       - ~/.gitconfig
       - ~/.claude/settings.json
-      - /proc/
-      - /sys/
+      - ~/.claude/credentials
+      - /etc/shadow
+      - /etc/sudoers
 
-    # 忽略这些路径（减少噪音）
-    ignore_paths:
-      - /tmp/
-      - /dev/null
-      - /dev/urandom
-      - /usr/lib/
-      - /usr/share/
-
-  # 网络审计
   network:
-    # 允许的目标
+    # **白名单之外**的域名出现在模型声明的工具调用里 → 标黄。
+    #
+    # 只在**工具调用**上判，不在 skill 文本的普通链接上判 ——
+    # 一份 README 里引用 `docs.example.com` 是正常的，而一次真的去连它是另一回事。
+    # （第一版考虑过在 L3 里对文本域名判黄，那会把大量正常 skill 打成 REVIEW。）
     allowed_targets:
-      - api.anthropic.com:443
-      - api.github.com:443
-      - raw.githubusercontent.com:443
-    # 记录所有其他连接尝试
-    log_denied: true
-
-# 报告格式
-report:
-  format: json
-  fields:
-    - timestamp
-    - syscall
-    - process_name
-    - file_path
-    - network_target
-    - severity
-  severity_levels:
-    - info       # 正常行为
-    - warning    # 可疑但可能合法
-    - critical   # 明确违规
+      - api.anthropic.com
+      - api.github.com
+      - github.com
+      - raw.githubusercontent.com
+      - translate.googleapis.com
+      - objects.githubusercontent.com
+      - codeload.github.com

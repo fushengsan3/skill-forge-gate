@@ -88,7 +88,18 @@ def check_name(name) -> str:
 
 
 def is_safe_name(name) -> bool:
-    """不抛异常的版本，给需要布尔判断的调用方（比如渲染时标记）。"""
+    """不抛异常的版本：合法返回 True，不合法返回 False。
+
+    ⚠️ **生产代码目前没有调用方** —— 用它的只有测试（`test_safe_paths` /
+    `test_attack` / `test_stress`）。原先的 docstring 写着"比如渲染时标记"，
+    但那个调用方**不存在**：面板的渲染路径走的是 `queue_bridge` 里的
+    `resolve_within`，不是这里。声称一个不存在的调用方，比没有 docstring 更糟 ——
+    它会让人以为这条判断在某个真实路径上生效。
+
+    所以：**要不要拿它做校验，看的是调用方愿不愿意处理"名字不合法"这件事** ——
+    任何会 rmtree/写盘的路径都该走 `check_name` 或 `resolve_within`（它们会抛），
+    只有"判断一下、合法就显示、不合法就跳过"这种场景才适合布尔版。
+    """
     try:
         check_name(name)
         return True
@@ -106,6 +117,37 @@ def resolve_within(base, name) -> Path:
     target = base / name
     _assert_within(base, target)
     return target
+
+
+FORGE_DIR_NAME = "skill-forge"
+
+
+def is_forge_dir(target, skills_root=None) -> bool:
+    """这个路径是不是 **skill-forge 自己**。
+
+    凡是会 `rmtree` 或覆盖已存在目录的入口，都要先过这一道。
+    "卸载 skill-forge" 不是一次卸载 —— 那是把管理器**连同它自己的日志、
+    安装队列、部署留档一起删掉**，而它正是执行这次删除的那个程序。
+    更糟的是 `uninstall.sh` 的备份目录 `$SKILL_FORGE/.backup` 就在被删的目录里面，
+    所以连"先备份再删"这条退路也一起没了。
+
+    `check_name()` 拦不住它：`skill-forge` 是一个**完全合法**的单分量名字，
+    拼出来的路径也确实落在 `skills/` 里面 —— 它只是不该被删而已。
+    所以这是**独立于名字校验**的一条判断，两者都要有。
+
+    （2026-10-06：`queue_bridge._handle_uninstall` 与 `uninstall.sh`/`update.sh`
+      此前都没有这道判断，`resolve_within` 对 "skill-forge" 一律放行。）
+    """
+    try:
+        p = Path(target).resolve()
+        root = Path(skills_root) if skills_root else Path.home() / ".claude" / "skills"
+        return p == (root / FORGE_DIR_NAME).resolve()
+    except (OSError, TypeError, ValueError):
+        # 这是个**布尔判断**，必须总能返回 —— 调用方是"要不要删"的路径，
+        # 让它抛异常等于把判断变成第三态，而那里只有"删"和"不删"。
+        # 返回 False 的语义是"不认为它是本体"；注意调用方**不能**只靠这一条，
+        # 名字校验（check_name/resolve_within）仍然在前面独立生效。
+        return False
 
 
 def is_within(base, target) -> bool:

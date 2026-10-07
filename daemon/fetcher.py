@@ -12,6 +12,24 @@ from pathlib import Path
 
 PROXY = "http://127.0.0.1:7897"
 SKILL_ROOT = Path.home() / ".claude" / "skills" / "skill-forge"
+LOG_FILE = SKILL_ROOT / "daemon" / "watchdog.log"
+
+
+def log(msg: str):
+    """记一行到与 installer / watchdog 同一个日志文件。"""
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"[{ts}] [fetcher] {msg}\n")
+    except OSError:
+        pass
+
+
+def _redact_url(url: str) -> str:
+    """抹掉 URL 里的凭据再往日志里带 —— 外部源地址是用户自己填的，可能带 token。"""
+    import re
+    return re.sub(r"://[^/@\s]*@", "://***@", url or "")
 
 
 def set_proxy():
@@ -19,13 +37,23 @@ def set_proxy():
     os.environ["http_proxy"] = PROXY
 
 
-def _github_headers() -> dict:
+def github_headers() -> dict:
     """GitHub API 请求头。
 
     R6：配了 GitHub Token 就带上 —— 限流从 60 次/小时提到 5000 次/小时。
     没配也能正常工作，只是容易被限流（实测跑一遍测试就会耗光 60 次）。
 
     密钥来自 Windows 凭据管理器，不落盘、不进日志。
+
+    ⚠️ **这个函数现在有第二个使用者**：`verify/l2_source.py`（L2 来源校验）。
+    2026-10-07 之前 L2 走的是**匿名**请求，于是「L2 来源」这一层在一台
+    正常使用的机器上**永远被限流跳过**（`403 rate limit exceeded`）——
+    而 `installer._trust_level()` 的规则是"有层跳过 → partial"，
+    结果**每个 skill 装完都是 partial**，那个字段等于没有区分度。
+
+    所以这次是「把装饰变回真检查」：L2 也带上 token，限流从 60/小时
+    提到 5000/小时，它就能真跑。**别把这个函数复制一份到 verify/ 去** ——
+    两份取凭据的逻辑迟早走样，而分叉的那一份就是"配了却没生效"的那一份。
     """
     headers = {
         "Accept": "application/vnd.github.v3+json",
@@ -46,7 +74,7 @@ def api_get(url: str) -> dict:
     set_proxy()
     proxy_handler = urllib.request.ProxyHandler({"https": PROXY, "http": PROXY})
     opener = urllib.request.build_opener(proxy_handler)
-    req = urllib.request.Request(url, headers=_github_headers())
+    req = urllib.request.Request(url, headers=github_headers())
     try:
         with opener.open(req, timeout=30) as resp:
             return {"ok": True, "data": json.loads(resp.read().decode())}
@@ -251,9 +279,15 @@ def fetch_external_sources() -> list:
     for es in ext_sources:
         url = es.get("url", "")
         label = es.get("label", "")
+        # 出事的时侯总得知道是**哪个源** —— label 优先，没有就用抹掉凭据的 URL。
+        who = label or _redact_url(url)
         try:
             result = api_get(url)
             if not result["ok"]:
+                # 以前这里是裸 `continue`：源挂了 / 403 / 429 与
+                # "这个源本来就没数据"在最终结果里**完全一样**，
+                # 只看到"本轮发现 0 个新 skill"，无从判断是不是源全挂了。
+                log(f"外部源拉取失败（{who}）：{_redact_url(result.get('reason') or '未知原因')}")
                 continue
             data = result["data"]
             # 支持两种格式：GitHub API repo 对象 或 通用 skill 列表
@@ -268,7 +302,10 @@ def fetch_external_sources() -> list:
                 skill = normalize_skill(item, source="external", label=label)
                 if skill:
                     skills.append(skill)
-        except Exception:
+        except Exception as e:
+            # 只记类型，不记 e 全文（同 translate_ai.py:107 的理由：
+            # 异常文本里可能带着请求头）。
+            log(f"外部源处理失败（{who}）：{type(e).__name__}")
             continue
 
     return skills
