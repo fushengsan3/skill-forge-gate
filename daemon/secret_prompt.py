@@ -42,8 +42,14 @@ PROMPTS = {
     ),
     credentials.AI_TOKEN: (
         "AI 供应商密钥",
-        "粘贴 AI 服务的 API Key。\n它用于 AI 翻译后端，同样存进 Windows 凭据管理器。",
-        "密钥不会经过浏览器页面，也不会以明文写进任何文件。",
+        # ⚠️ 这里原先写的是"它用于 AI 翻译后端" —— **说轻了**。这个密钥真正的用途是
+        # **L4 深度分析与 L5 沙箱**（装每个 skill 时都要调模型）。只提翻译会让人
+        # 以为它是可选的附属功能，而没配它 L4/L5 会直接跳过 —— 那是安全流水线的一半。
+        "粘贴 AI 服务的 API Key。\n"
+        "它将存进 Windows 凭据管理器，供 L4 深度分析 / L5 沙箱 / AI 翻译后端"
+        "调用模型时使用。",
+        "密钥不会经过浏览器页面，也不会以明文写进任何文件。\n"
+        "留空或取消则维持现状（不配置）。",
     ),
 }
 
@@ -64,7 +70,10 @@ def _run(title: str, prompt: str, hint: str):
     ]
     try:
         proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=TIMEOUT,
+            # errors="replace"：解码失败时 subprocess 不抛异常，它把 stdout/stderr
+            # 变成 None（见 daemon/installer.py 的 run() 那条注释）。这个函数的返回值
+            # 决定"密钥到底存没存进去"，绝不能被一个静默的 None 带偏。
+            cmd, capture_output=True, text=True, errors="replace", timeout=TIMEOUT,
             # CREATE_NO_WINDOW：别闪一个黑框出来。
             # 注意这不影响输入框本身 —— 它是 GUI 窗口，不是控制台。
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -113,7 +122,11 @@ def ask_and_store(name: str):
             return False, status
         try:
             credentials.set_secret(name, value)
-        except credentials.CredentialError:
+        except credentials.CredentialError as e:
+            # 形态不对（多半是粘错了内容）**单独报**，别和"写盘失败"混成一个状态 ——
+            # 前者用户自己就能改，后者要查凭据库。见 credentials._looks_like_key。
+            if "拒绝写入" in str(e):
+                return False, "bad_format"
             return False, "store_failed"
         return True, "ok"
     finally:

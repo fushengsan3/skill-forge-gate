@@ -169,8 +169,61 @@ def run_installer_checks():
         r2 = installer.install_skill("C:/Users/<you>/Documents", "https://github.com/a/b")
         check(r2.get("ok") is False, "install_skill 拒绝绝对路径", str(r2.get("error"))[:60])
         check(cloned == [], "绝对路径同样在 clone 之前被拦")
+
+        # ★ 装到「本体」上。`skill-forge` 是合法名字，`check_name` 放行 ——
+        # 但 `install_skill` 最后是 rmtree 再 copytree，所以那是**用别人的仓库
+        # 整体替换掉管理器**。这条判断必须独立于名字校验存在。
+        r3 = installer.install_skill("skill-forge", "https://github.com/a/b")
+        check(r3.get("ok") is False, "★ 拒绝安装到 skill-forge 本体上",
+              str(r3.get("error"))[:70])
+        check(cloned == [], "★ 同样在 clone 之前就拦下（不白 clone 一遍）")
     finally:
         installer._git_clone = real
+
+    # is_forge_dir 本身：它判的是**解析后的路径**，不是名字字符串。
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / "skills"
+        root.mkdir()
+        (root / "skill-forge").mkdir()
+        (root / "ordinary").mkdir()
+        check(sp.is_forge_dir(root / "skill-forge", root),
+              "is_forge_dir 认得出本体目录")
+        check(not sp.is_forge_dir(root / "ordinary", root),
+              "普通 skill 目录不是本体")
+        check(not sp.is_forge_dir(root, root),
+              "skills 根目录本身不是本体（它是装着本体的那个）")
+        check(not sp.is_forge_dir(object(), root),
+              "拿到奇怪的东西（Path() 会抛 TypeError）时判 False 而不是崩 —— "
+              "它是布尔判断，总该能返回；False 的含义是「不认为它是本体」，"
+              "调用方随后仍会走正常校验")
+
+    # ★ #35：仓库地址的判定必须比**主机**，不能比整串子串。
+    #
+    # 原先是 `"github.com" in url` —— 于是 `https://attacker.example/github.com/evil`
+    # 会被当成 GitHub 地址**放行，然后真的去 clone 它**。
+    # 这些 URL 来自面板 / 安装队列，是不受信输入。
+    print("--- 6b. ★ 仓库地址判定：比主机，不比子串 ---")
+    from daemon.installer import _is_github_url
+    accepted = [
+        ("https://github.com/a/b", "标准地址"),
+        ("https://github.com/a/b/tree/main/sub", "子目录 URL"),
+        ("https://github.com/a/b/blob/main/SKILL.md", "文件 URL"),
+        ("github.com/a/b", "无 scheme 的简写"),
+        ("git@github.com:a/b.git", "SSH 简写（sources.json 里真出现过）"),
+        ("https://api.github.com/repos/a/b", "API 地址"),
+    ]
+    for url, why in accepted:
+        check(_is_github_url(url), f"接受 {why}", url)
+    rejected = [
+        ("https://attacker.example/github.com/evil", "★ 把 github.com 埋进路径里"),
+        ("https://evil.com/?x=github.com", "★ 埋进查询串里"),
+        ("https://notgithub.com/a/b", "★ 后缀伪装"),
+        ("https://github.com.evil.example/a", "★ 把真域名当前缀"),
+        ("", "空串"),
+    ]
+    for url, why in rejected:
+        check(not _is_github_url(url),
+              f"拒绝 {why}（旧写法 `\"github.com\" in url` 会放行）", url or "(空)")
 
 
 # ---------------------------------------------------------------- 真跑 bridge
@@ -221,6 +274,26 @@ def run_bridge_checks():
 
             check(decoy.exists() and any(decoy.iterdir()),
                   "诱饵目录整体完好 —— 这才是真正要证明的")
+
+            # ★ 卸载「本体」。`skill-forge` 是**合法**的单分量名字，
+            # 而且拼出来的路径确实落在 skills 里面 —— 所以上面那些名字校验
+            # 一条都拦不住它。它指向的是**我们自己**。
+            # 2026-10-06 之前这里没有任何判断：面板上一点（或往接口塞一条）
+            # 就把管理器连同日志、队列、部署留档一起删掉，而执行删除的正是它自己。
+            forge_dir = skills / "skill-forge"
+            forge_dir.mkdir()
+            forge_marker = forge_dir / "marker.txt"
+            forge_marker.write_text("管理器自己", encoding="utf-8")
+            code, body = uninstall("skill-forge")
+            payload = json.loads(body) if body else {}
+            check(code == 200 and payload.get("ok") is False,
+                  "★ /uninstall skill-forge 被拒（合法名字，名字校验拦不住它）",
+                  f"HTTP {code} {body[:80]}")
+            check(forge_marker.exists(),
+                  "★ 管理器本体还在磁盘上（这才是这条用例要证明的）")
+            check(payload.get("error") == "self-uninstall-refused",
+                  "★ 拒绝的原因是可判别的（前端能据此给专门的提示）",
+                  str(payload.get("error")))
 
             # 合法卸载必须照常工作，别把功能一起关掉了
             code, body = uninstall("real-skill")

@@ -35,17 +35,61 @@
 ## 代价
 
 安装变慢。L2 要打一次 GitHub API，L5 在条件齐备时要起 Docker 调模型。
-L5 的前置（Docker / ANTHROPIC_API_KEY）会先探一次，缺了就直接跳过 ——
-不然会白等 docker build 的超时。
+L5 的前置（Docker / API 凭据）会先探一次，缺了就直接跳过 ——
+不然会白等 docker build 的超时。凭据判定走 `verify/llm_auth.py`，
+**凭据管理器优先，环境变量兜底**。
+
+## 「跳过」的含义（2026-10-05 明确）
+
+前置缺失时 L5 是**跳过**，不是拒绝 —— 没装 Docker 不是这个 skill 的错。
+
+但这留下一个必须说清楚的口子：**跳过 ≠ 通过**。一台没配凭据的机器上，
+面板一键安装就是"永远没有 L5"，而报告里那一行是 `SKIPPED` 而不是 `PASS`。
+两者在 `summarize()` 的输出里是分开写的（"N 层检查通过，M 层跳过（…）"），
+这是有意的 —— 不要把它们合并成一句"检查完成"。
+
+为什么凭据管理器优先：环境变量是**按进程注入**的，bridge 这个常驻进程
+（任务计划 / HKCU\\Run 拉起）继承不到，于是这条路上 `credentials()` 永远为空、
+L5 一次都没跑过。凭据管理器是跨进程的。详见 `verify/llm_auth.py` 顶部。
 """
-import os
 import subprocess
 from pathlib import Path
 
 SKILLS_DIR = Path.home() / ".claude" / "skills"
 
-# 默认：这两种结论挡住安装
-BLOCKING_VERDICTS = frozenset({"REJECT", "REVIEW"})
+# ---- 拦不拦：只有「明确有害」和「没验成」才拦 ----
+#
+# ⚠️ **2026-10-07 改**。原来是 `{REJECT, REVIEW}` —— 即"需要人看一眼"也硬拦。
+# 那个设计的前提是「REVIEW 罕见且有意义」，实测把这个前提推翻了：
+#
+#   本机 80 个**真实在用**的 skill 走一遍，**20 个（25%）被判拦**
+#   （L3 拦 14 + L4 拦 13，有重叠）。而它们全是正常 skill ——
+#   用户自己装、自己天天用的那种。
+#
+# 追下去发现两层的判据都在问错的问题（都已修，见各自的注释）：
+#   · L4 拿"两个 skill 目录里同名相对路径"当文件覆盖 —— 而它们装在不同目录里，
+#     根本碰不到一起。`README.md`/`references/` 这种人人都有。
+#   · L3 的好几条红组规则匹配的是**「提到」而不是「在做」**：`\beval\b` 命中
+#     206 次（全是 JS/Python 源码里的 `eval(`）、裸露的 `Startup` 命中 799 次
+#     （普通英文单词）、`sudo` 命中 150 次（注释里）。最讽刺的是被拒得最狠的
+#     那个 skill，本身是**讲安全边界的**。
+#
+# 修完判据之后，80 个真 skill 里 REJECT **0 个**、REVIEW 13 个（都是"文档里提到
+# curl/sudo"这类**确实值得看一眼**的事）。但这 13 个如果还硬拦，等于因为
+# "这个 skill 的文档里出现了 curl"就拒绝安装 —— 那不是保护，是摩擦。
+#
+# 所以分成两种后果：
+#   REJECT（明确有害）      → 不装
+#   静态层 ERROR（没验成）  → 不装（下面 elif 那条，**没有动**）
+#   REVIEW（需要人看一眼）  → **装，但如实标成 `partial`**，
+#                             并把它为什么被标出来带进报告
+#
+# 最后一条依赖 `installer._trust_level()` 把 REVIEW 折成 `partial` ——
+# 它原先漏了 REVIEW（会一路掉到 `verified`）。两处是**一起改**的。
+#
+# 想让流水线回到"REVIEW 也拦"，把这里改回 `{"REJECT", "REVIEW"}` 即可 ——
+# 但先看一眼上面那组数字：那样做会拒掉四分之一的正常 skill。
+BLOCKING_VERDICTS = frozenset({"REJECT"})
 
 # 但**不能一刀切** —— 每层的"黄"含义不一样。
 #
@@ -66,12 +110,25 @@ STATIC = "static"
 EXTERNAL = "external"
 
 
-def _docker_available() -> bool:
+def _docker_available():
+    """→ (是否可用, 不可用的原因)
+
+    以前是 `except Exception: return False`，把三种**完全不同**的情况压成同一句
+    "Docker 不可用"：没装 docker、装了但**守护进程没起**、以及别的一切异常。
+    而 L5 会因此静默跳过 —— 用户看到的是"跳过"，看不到"你的 Docker Desktop 没开"。
+    （2026-10-05 机器重启后就真踩到过：守护进程没自启。）
+    """
     try:
         subprocess.run(["docker", "info"], capture_output=True, timeout=10, check=True)
-        return True
-    except Exception:
-        return False
+        return True, ""
+    except FileNotFoundError:
+        return False, "这台机器没有 docker 命令（不在 PATH 里）"
+    except subprocess.CalledProcessError as e:
+        return False, f"docker 命令在，但 `docker info` 失败（守护进程没起？退出码 {e.returncode}）"
+    except subprocess.TimeoutExpired:
+        return False, "`docker info` 超过 10 秒没响应"
+    except OSError as e:
+        return False, f"调不起 docker：{type(e).__name__}"
 
 
 def _run(name: str, kind: str, fn) -> dict:
@@ -85,17 +142,38 @@ def _run(name: str, kind: str, fn) -> dict:
         return {"name": name, "kind": kind, "verdict": "ERROR",
                 "reason": f"返回了 {type(result).__name__}，不是报告"}
 
+    # ⚠️ 说明文字**在不同 verdict 下放在不同字段里**，这里必须都认：
+    #     L1/L3/L4（预检自己那几层）→ `reason`
+    #     L5 的 REVIEW               → `note`（`run_docker_sandbox` 只在 REVIEW 分支写它）
+    #     L5 的 ERROR / SKIPPED      → `error`
+    #
+    # 只读 `reason` 的后果 **2026-10-07 Phase 5 真机跑时实测到了**：
+    # L5 判 REVIEW 时返回值里**根本没有 `reason` 这个键**，于是报告上只有一句
+    #     "L5 沙箱 未通过（REVIEW）："      ← 冒号后面什么都没有
+    # 读的人无从知道为什么。而 L5 其实说得很清楚（"skill 计划执行 4 个 Bash 命令，
+    # 请与 L3 静态分析结果交叉验证"）—— 它只是没被搬过来。
+    #
+    # 这与下面那份计数白名单是**同一个形状的坑**（那里写着"L5 的 write_calls /
+    # network_indicators 就这么丢过一次"）：不是没算出来，是没搬出去。
+    detail = (result.get("reason") or result.get("note") or result.get("error") or "")
     layer = {
         "name": name,
         "kind": kind,
         "verdict": str(result.get("verdict", "ERROR")),
-        "reason": str(result.get("reason", ""))[:300],
+        "reason": str(detail)[:300],
     }
-    # 把 L3 的红黄计数带出来 —— 这是用户最想看到的那两个数
+    # 把各层的关键计数带出来 —— 这几个数正是用户/排查的人最想看的。
+    #
+    # ⚠️ 这份清单是**白名单**：往 summary 里加了新计数却忘了加到这里，那个数
+    # 就永远到不了面板和 HTTP 响应，而且不会有任何报错。L5 的
+    # write_calls / network_indicators 就这么丢过一次 —— 它们原本只活在
+    # `run_docker_sandbox` 的返回值里，从预检出去就没了。
     summary = result.get("summary")
     if isinstance(summary, dict):
         layer["counts"] = {k: v for k, v in summary.items()
-                           if k in ("red_count", "yellow_count", "scanned_files")}
+                           if k in ("red_count", "yellow_count", "scanned_files",
+                                    "total_tool_calls", "bash_calls", "write_calls",
+                                    "network_indicators")}
     return layer
 
 
@@ -104,22 +182,66 @@ def _skip(name: str, why: str) -> dict:
 
 
 def _l5(repo_dir: Path, l5) -> dict:
-    """L5 沙箱。前置不齐就先跳过，别去等 docker build 的超时。"""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return _skip("L5 沙箱", "未配置 ANTHROPIC_API_KEY，容器里没法调模型 —— 跳过（不是这个 skill 的问题）")
-    if not _docker_available():
-        return _skip("L5 沙箱", "Docker 不可用 —— 跳过（不是这个 skill 的问题）")
+    """L5 沙箱。前置不齐就先跳过，别去等 docker build 的超时。
+
+    **凭据判定走 l5/llm_auth，这里绝不自己写一份**。原先这里只认
+    `ANTHROPIC_API_KEY`，于是配 `ANTHROPIC_AUTH_TOKEN` 的机器永远不会跑到 L5
+    （2026-10-05 在真机上撞到）。两处判定迟早分叉，而分叉的那一处就是
+    "功能在、一次都不触发"的那一处。
+    """
+    try:
+        info = l5.describe_credentials()
+    except Exception as e:
+        # 判定本身崩了 —— 这跟"没配"是两回事，写清楚。
+        return _skip("L5 沙箱", f"凭据判定失败（{type(e).__name__}: {e}）—— 跳过")
+
+    if not info.get("has_token"):
+        note = str(info.get("key_note") or "")
+        if note.startswith("unreadable"):
+            # 配过，但读不出来。**这不是「没配」** —— 让用户去设置页反复保存
+            # 是徒劳的，那条记录本身就坏了。
+            hint = ("⚠️ 凭据管理器里有这条记录，但**读不出来** —— 这不是「没配」。"
+                    "去 Windows 凭据管理器（控制面板 → 用户账户 → 凭据管理器 → "
+                    "Windows 凭据）删掉 `SkillForge/ai-token` 再重存一次。"
+                    f"（{note}）")
+        elif note:
+            hint = f"⚠️ {note}"
+        else:
+            hint = ("配法：面板 → 设置 → 密钥 → AI 密钥（推荐，跨进程可用）；"
+                    "或设 ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN"
+                    "（只对继承到该变量的进程有效）")
+        return _skip("L5 沙箱",
+                     "没拿到 AI 凭据 —— 容器里调不了模型，本轮跳过。"
+                     f"**跳过不是通过**，也不是这个 skill 的问题。{hint}")
+
+    docker_ok, docker_why = _docker_available()
+    if not docker_ok:
+        # 把原因带进报告。跳过本身不拦安装，但"为什么跳过"必须看得见 ——
+        # 否则用户只会以为这个 skill 不需要沙箱审计。
+        return _skip("L5 沙箱", f"Docker 不可用 —— 跳过（不是这个 skill 的问题）：{docker_why}")
     return _run("L5 沙箱", EXTERNAL, lambda: l5.run_docker_sandbox(
         str(repo_dir), l5.generate_test_prompts(str(repo_dir))))
 
 
-def verify_repo(repo_dir, url: str, skills_dir=None) -> dict:
+def verify_repo(repo_dir, url: str, skills_dir=None, skip: tuple = ()) -> dict:
     """对**已经 clone 到本地**的仓库跑 L1–L5。
 
     返回 {"ok": bool, "layers": [...], "blocked_by": [层名], "summary": str}。
 
     clone 之前不跑是因为 L1/L3/L4 都要读文件。早失败那一步由 safe_paths 的名字
     校验负责（它在 clone 之前）。
+
+    ## `skip`：点名跳过的层
+
+    给**子 skill** 用的（`daemon/installer.py::_discover_sub_skills`）。
+    一个 monorepo 里几十个子 skill，每个都重打一次 GitHub API 会把
+    未鉴权的 60 次/小时额度当场烧光 —— 而来源是**同一个仓库**，整仓那一次
+    已经查过了。
+
+    ⚠️ 被跳过的层**照样出现在报告里**，标 `SKIPPED` + 说明原因。
+    不是"悄悄不生成这一层" —— 那份报告会被读成"五层都跑过"，而真相是四层。
+    这也是为什么没有被跳过的层时，`_trust_level` 会给出 `partial`：
+    它说的是"**这个** skill 并非每一层都验过"，那是事实。
     """
     repo_dir = Path(repo_dir)
     skills_dir = Path(skills_dir) if skills_dir else SKILLS_DIR
@@ -132,8 +254,15 @@ def verify_repo(repo_dir, url: str, skills_dir=None) -> dict:
     layers = [
         _run("L1 结构", STATIC,
              lambda: l1_structure.check_skill(str(repo_dir))),
-        _run("L2 来源", EXTERNAL,
-             lambda: l2_source.check_source(url)),
+    ]
+    if "L2" in skip:
+        layers.append(_skip("L2 来源",
+                            "同一仓库的来源检查已在整仓预检里做过，不重复打 GitHub API。"
+                            "**这一层没有针对本 skill 单独跑过**"))
+    else:
+        layers.append(_run("L2 来源", EXTERNAL,
+                           lambda: l2_source.check_source(url)))
+    layers += [
         _run("L3 内容", STATIC,
              lambda: l3_content_scan.scan_skill(str(repo_dir))),
         _run("L4 冲突", STATIC,
@@ -164,7 +293,19 @@ def verify_repo(repo_dir, url: str, skills_dir=None) -> dict:
 
 
 def summarize(layers: list, blocked: list = None) -> str:
-    """一句话说清楚结论。这句话会出现在日志、HTTP 响应和面板上。"""
+    """一句话说清楚结论。这句话会出现在日志、HTTP 响应和面板上。
+
+    ## 为什么每个结论都要单独数
+
+    2026-10-05 之前这里写的是 `done = [L for L in layers if L["verdict"] not in ("SKIPPED",)]`
+    然后 `f"{len(done)} 层检查通过"`。**"不是跳过"被当成了"通过"** ——
+    于是跑崩的那一层（`ERROR`）和带警告的那一层（`WARN`）都被数进了"通过"里。
+    最坏的情形是外部层出错：外部层的 ERROR 不进 blocked（见 verify_repo 里的判断），
+    于是 L5 一出错，报告反而念出"5 层检查通过"。
+
+    现在每个结论各数各的，谁都不冒充谁。"跳过"和"出错"都必须出现在这句话里 ——
+    读的人只看这一句，它漏掉的那一层就等于不存在。
+    """
     blocked = blocked if blocked is not None else [
         L for L in layers if L["verdict"] in BLOCKING_VERDICTS]
     if blocked:
@@ -172,14 +313,28 @@ def summarize(layers: list, blocked: list = None) -> str:
         more = f"，另有 {len(blocked) - 1} 层也拦了" if len(blocked) > 1 else ""
         return f"{head['name']} 未通过（{head['verdict']}）：{head['reason']}{more}"
 
-    done = [L for L in layers if L["verdict"] not in ("SKIPPED",)]
-    skipped = [L["name"] for L in layers if L["verdict"] == "SKIPPED"]
+    passed = [L["name"] for L in layers if L["verdict"] == "PASS"]
     warned = [L["name"] for L in layers if L["verdict"] == "WARN"]
-    text = f"{len(done)} 层检查通过"
+    errored = [L["name"] for L in layers if L["verdict"] == "ERROR"]
+    skipped = [L["name"] for L in layers if L["verdict"] == "SKIPPED"]
+    # ⚠️ `REVIEW` 原先**没有**被数（2026-10-07 补上）。闸门放开之后它不再进
+    # `blocked`，于是这一句里既不算通过也不算跳过 —— **那一层等于不存在**。
+    # 读的人只看这一句（日志/HTTP 响应/面板都是它），漏掉就等于"看起来全绿"。
+    reviewed = [L["name"] for L in layers if L["verdict"] == "REVIEW"]
+
+    text = f"{len(passed)} 层检查通过"
+    if reviewed:
+        text += f"，**{len(reviewed)} 层需要人工看一眼**（{'、'.join(reviewed)}）"
     if warned:
         text += f"，{len(warned)} 层有警告（{'、'.join(warned)}）"
+    if errored:
+        text += f"，{len(errored)} 层出错（{'、'.join(errored)}）"
     if skipped:
         text += f"，{len(skipped)} 层跳过（{'、'.join(skipped)}）"
+
+    # 四项加起来对不上层数时，把总数写出来 —— 否则一句"N 层……"读起来像已经交代完了。
+    if len(passed) != len(layers):
+        text += f"，共 {len(layers)} 层"
     return text
 
 

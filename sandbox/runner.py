@@ -16,9 +16,14 @@ L5 沙箱里的执行体 —— **这个文件在容器内运行**，不在宿�
 
     入：{"skill_content": "...", "prompts": [...], "api_key": "...",
          "base_url": "https://api.anthropic.com", "model": "...",
+         "auth_style": "x-api-key" | "bearer",
          "proxy": "", "timeout": 30}
     出：{"tool_calls": [{"name": "Bash", "input": {...}}, ...],
          "errors": ["..."]}
+
+`auth_style` 是**首选**风格，不是唯一允许的：收到 401 时会换另一种再试一次
+（两种都 401 才报错，且报错措辞会说明"两种都试过了"）。理由见下面 _one_call 里的注释 ——
+走错风格和密钥不对在 HTTP 上是同一个状态码，而这条路径无人值守。
 
 **为什么密钥走 stdin 而不是环境变量或命令行参数**：`docker run -e KEY=...`
 会把密钥写进 `docker inspect` 的输出，也会出现在宿主机的进程表里；
@@ -38,7 +43,22 @@ L5 沙箱里的执行体 —— **这个文件在容器内运行**，不在宿�
 """
 import json
 import sys
+import urllib.error
 import urllib.request
+
+# 单次响应的 token 上限。
+#
+# **500 是错的，而且错得很危险。** 2026-10-05 在真机上实测（DeepSeek 的
+# Anthropic 兼容端点）：中文 system prompt + 本文件这 5 个工具时，模型的
+# thinking 块会吃掉整个 500 token 预算，于是永远挤不出 tool_use 块 ——
+# stop_reason 停在 max_tokens。
+#
+# 后果不是"少看到几个调用"，是**一个都看不到**：L5 报 0 个工具调用，
+# 看起来跟一个干净 skill 一模一样。一份写着 rm -rf / 的 skill 会被判成通过。
+# 静默假阴性比直接报错危险得多。
+#
+# 实测：1024 仍然只出 text；2048 起 tool_use 稳定出现。4096 留余量。
+MAX_TOKENS = 4096
 
 
 def _build_tools() -> list:
@@ -75,22 +95,14 @@ def _one_call(payload: dict, prompt: str) -> tuple:
     )
     body = json.dumps({
         "model": payload.get("model") or "claude-haiku-4-5-20251001",
-        "max_tokens": 500,
+        "max_tokens": MAX_TOKENS,
         "system": system_prompt,
         "messages": [{"role": "user", "content": prompt}],
         "tools": _build_tools(),
     }).encode("utf-8")
 
     base = (payload.get("base_url") or "https://api.anthropic.com").rstrip("/")
-    req = urllib.request.Request(
-        base + "/v1/messages",
-        data=body,
-        headers={
-            "x-api-key": payload.get("api_key", ""),
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-    )
+    token = payload.get("api_key", "")
 
     # 代理：沙箱里默认不设。宿主那边有代理是因为宿主的网络需要它；
     # 容器里如果也设，就等于把宿主的内网地址带进去了。
@@ -101,11 +113,57 @@ def _one_call(payload: dict, prompt: str) -> tuple:
     else:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
+    # 认证头有两种风格，取决于密钥的来源（宿主那边判定了用哪种）：
+    #   x-api-key              ← Anthropic 原生 key，以及凭据管理器里那把
+    #   Authorization: Bearer  ← Claude Code 和各家中转
+    #
+    # 但**宿主判对了不等于这里不会撞**：中转千奇百怪，而"走错风格"和"密钥不对"
+    # 在 HTTP 上都是 401，长得一模一样。L5 又跑在无人值守的面板上，
+    # 没人能来告诉它该换哪种头。所以 401 时换一种风格再试**一次**。
+    #
+    # 这不会掩盖任何东西：两种风格都 401，错误照旧上报 —— 而且报的措辞明确写了
+    # "两种都试过了"，免得排查的人往认证风格上白找。
+    style = payload.get("auth_style") or "x-api-key"
+    other = "x-api-key" if style == "bearer" else "bearer"
+
+    def send(which: str):
+        headers = {"anthropic-version": "2023-06-01", "content-type": "application/json"}
+        if which == "bearer":
+            headers["authorization"] = "Bearer " + token
+        else:
+            headers["x-api-key"] = token
+        req = urllib.request.Request(base + "/v1/messages", data=body, headers=headers)
+        return opener.open(req, timeout=int(payload.get("timeout") or 30))
+
     try:
-        with opener.open(req, timeout=int(payload.get("timeout") or 30)) as resp:
+        try:
+            resp_cm = send(style)
+        except urllib.error.HTTPError as e:
+            if e.code != 401:
+                raise
+            try:
+                resp_cm = send(other)
+            except urllib.error.HTTPError as e2:
+                if e2.code == 401:
+                    return [], (f"认证被拒（401）：{style} 和 {other} 两种风格都试过了。"
+                                "所以问题在密钥本身（没配、已过期、或不属于这个端点），"
+                                "不是认证风格。")
+                raise
+        with resp_cm as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         return [], f"{type(e).__name__}: {e}"
+
+    # ---- 截断检测 ----
+    #
+    # 这一条是整段代码里最要紧的防护。被截断的响应里 **"没有 tool_use"**
+    # 和一份干净 skill 的响应长得一模一样 —— 都是 []。区别只在这个 stop_reason。
+    # 不看它，L5 就会把"没看到"当成"没有"，把恶意 skill 报成通过。
+    #
+    # 所以截断一律当错误上报，**绝不当成"零调用"**。
+    if data.get("stop_reason") == "max_tokens":
+        return [], (f"响应被 max_tokens={MAX_TOKENS} 截断，模型没来得及声明工具调用。"
+                    "这一轮的结果不可用 —— 是「没看到」，不是「没有」。")
 
     calls = []
     for block in data.get("content", []):

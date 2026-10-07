@@ -102,6 +102,22 @@ def setup(tmp: Path, tag: str):
     return skills, bin_dir
 
 
+# ⚠️ **绝对路径** + **errors="replace"**，两个都不能省。
+#
+#   1. Windows 的 CreateProcess 在查 PATH *之前* 先搜 System32，而
+#      `C:\Windows\System32\bash.exe` 是 **WSL 的启动器**，不是 Git 的 MSYS bash。
+#      写裸 "bash" 就永远命中 WSL：这台机器的 WSL 没装发行版，它只会发一条
+#      GBK 报错然后 rc=1 —— 于是这个文件里每一条「应当被拒绝」的断言都会**假通过**，
+#      因为 1 也是非零。
+#   2. `text=True` 不带 errors= 时，子进程输出里有一个非 UTF-8 字节就会让解码线程
+#      抛 UnicodeDecodeError，CompletedProcess 的 stderr 变成 **None**、returncode
+#      变成错的 1。不抛异常，只是静默返回假结果。
+#
+#   2026-10-06 之前，这个文件就是一路假通过、然后崩在 `p.stderr[:100]` 上的，
+#   从未跑到过 finish()。
+BASH = shutil.which("bash") or "bash"
+
+
 def run(skills: Path, bin_dir: Path, fake_repo: Path, args, extra_env=None):
     env = os.environ.copy()
     env["SKILLS_ROOT"] = str(skills)
@@ -111,8 +127,9 @@ def run(skills: Path, bin_dir: Path, fake_repo: Path, args, extra_env=None):
         env.pop(k, None)
     if extra_env:
         env.update(extra_env)
-    return subprocess.run(["bash", str(SCRIPT)] + list(args),
-                          capture_output=True, text=True, env=env, timeout=300)
+    return subprocess.run([BASH, str(SCRIPT)] + list(args),
+                          capture_output=True, text=True, errors="replace",
+                          env=env, timeout=300)
 
 
 def main():

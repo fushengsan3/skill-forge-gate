@@ -33,6 +33,28 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 SCRIPT = ROOT / "scripts" / "self-update.sh"
 
+# ⚠️ 跑 shell 脚本一律走 bash_run()，别自己写 subprocess.run(["bash", ...])。
+# 那两处细节都不是可有可无的：
+#
+#   1. **绝对路径。** Windows 的 CreateProcess 在查 PATH *之前* 先搜 System32，
+#      而 `C:\Windows\System32\bash.exe` 是 **WSL 的启动器**，不是 Git 的 MSYS bash。
+#      写裸 "bash" 就永远命中 WSL —— 这台机器的 WSL 没装发行版，
+#      它只会发一条 GBK 报错然后 rc=1。
+#   2. **errors="replace"。** `text=True` 不带它时，子进程输出里只要有一个非 UTF-8
+#      字节，解码线程就抛 UnicodeDecodeError，于是 CompletedProcess 的 stderr 变成
+#      **None**、returncode 变成错的 1。注意：不是抛异常，是**静默返回一个假的结果**。
+#
+#   两件事叠在一起的后果是**假通过**：下面好几条断言是「returncode 应当非零」，
+#   而那个假的 1 恰好满足它。2026-10-06 才发现 test_self_update 和
+#   test_install_script 从头到尾就没跑到过 finish() —— 一路假通过，最后崩在
+#   打印错误信息的那一行（`proc.stderr[:150]`，stderr 是 None）。
+BASH = shutil.which("bash") or "bash"
+
+
+def bash_run(script, args=(), env=None, timeout=300):
+    return subprocess.run([BASH, str(script)] + list(args), capture_output=True,
+                          text=True, errors="replace", env=env, timeout=timeout)
+
 results = []
 
 
@@ -127,7 +149,7 @@ def run_update(fake_root: Path, bin_dir: Path, new_version: Path, env_extra=None
         env.pop(k, None)
     if env_extra:
         env.update(env_extra)
-    return subprocess.run(["bash", str(SCRIPT)], capture_output=True, text=True, env=env)
+    return bash_run(SCRIPT, env=env)
 
 
 def setup(tmp: Path, tag: str):
@@ -307,8 +329,7 @@ def check_rollback(tmp: Path):
     b = sorted((root / ".backup").glob("self-update-*"))[0]
     env = os.environ.copy()
     env["SKILL_FORGE_DIR"] = str(root)
-    proc = subprocess.run(["bash", str(b / "ROLLBACK.sh")],
-                          capture_output=True, text=True, env=env)
+    proc = bash_run(b / "ROLLBACK.sh", env=env)
     check(proc.returncode == 0, "ROLLBACK.sh 退出码为 0", proc.stderr[:150])
 
     restored = read_tree(root)
@@ -320,8 +341,7 @@ def check_rollback(tmp: Path):
     env2 = os.environ.copy()
     env2["SKILL_FORGE_DIR"] = str(root)
     env2["PATH"] = str(bindir) + os.pathsep + env2["PATH"]
-    proc2 = subprocess.run(["bash", str(SCRIPT), "--rollback"],
-                           capture_output=True, text=True, env=env2)
+    proc2 = bash_run(SCRIPT, ["--rollback"], env=env2)
     check(proc2.returncode == 0, "self-update.sh --rollback 也能用", proc2.stderr[:150])
     check(read_tree(root) == before, "★ --rollback 同样还原到更新前")
 
@@ -336,8 +356,7 @@ def check_list(tmp: Path):
     env = os.environ.copy()
     env["SKILL_FORGE_DIR"] = str(root)
     env["PATH"] = str(bindir) + os.pathsep + env["PATH"]
-    proc = subprocess.run(["bash", str(SCRIPT), "--list"],
-                          capture_output=True, text=True, env=env)
+    proc = bash_run(SCRIPT, ["--list"], env=env)
     check(proc.returncode == 0 and "self-update-" in proc.stdout,
           "--list 能列出留档", proc.stdout.strip()[:120])
 

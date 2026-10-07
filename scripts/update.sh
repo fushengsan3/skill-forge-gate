@@ -20,6 +20,27 @@ if [[ -z "$SKILL_NAME" ]]; then
     exit 2
 fi
 
+# ⚠️ 同 uninstall.sh：名字校验**必须在拼路径之前**，否则等于没验。
+# 这个脚本此前零校验，而它最后是 `rm -rf "$TARGET_DIR"` 然后 `mv` ——
+# 所以 `update.sh ..` 会删掉 $SKILLS_ROOT 的父目录。
+# 规则与 `daemon/safe_paths.py::check_name` 保持同一套；改一处必须同时改另一处。
+if [[ "$SKILL_NAME" == "." || "$SKILL_NAME" == ".." ]]; then
+    echo "{\"error\": \"拒绝：名字不能是 '$SKILL_NAME' —— 它会指到别的目录去\"}" >&2
+    exit 2
+fi
+if [[ "$SKILL_NAME" == */* || "$SKILL_NAME" == *\\* || "$SKILL_NAME" == *[\<\>\:\"\|\?\*]* ]]; then
+    echo "{\"error\": \"拒绝：名字里有路径分隔符或 Windows 保留字符\"}" >&2
+    exit 2
+fi
+
+# 更新自己 = 用**远端仓库的内容整体替换掉管理器**，包括正在运行的这个脚本。
+# 这条路径目前**还没有接过预检**（见 SKILL.md 的已知欠账），所以更不该允许它
+# 作用在自身上：那等于绕开全部检查换一整套代码进去。
+if [[ "$SKILL_NAME" == "skill-forge" ]]; then
+    echo "{\"error\": \"拒绝更新 skill-forge 本体（它没有预检路径，请手工处理）\"}" >&2
+    exit 2
+fi
+
 TARGET_DIR="$SKILLS_ROOT/$SKILL_NAME"
 
 if [[ ! -d "$TARGET_DIR" ]]; then
@@ -82,7 +103,42 @@ if [[ -n "$SUBPATH" ]]; then
     mv "$TMP_UPDATE-skill" "$TMP_UPDATE"
 fi
 
-# 原子替换
+# ---- 更新前预检：与 install.sh / 面板那条路**共用同一个模块** ----
+#
+# 这条路径以前**完全绕过** L1–L5：clone 完直接 `rm -rf "$TARGET_DIR"` 再 `mv` 进去。
+# 而 SKILL.md 把 `bash scripts/update.sh <name>` 记为**官方更新入口** ——
+# 于是「一个从没跑过预检的 skill，从没有预检的路径重装进来」是条可行链路。
+# 更新路径甚至比安装更该拦：它要**覆盖**已经装好的东西。
+#
+# 判定与 install.sh 一致：REJECT / REVIEW 都拒（REVIEW 的定义是"需要人看一眼"，
+# 而这条脚本路径上没有那个人 —— 退回给 Claude，由它读报告再决定）。
+#
+# ⚠️ 必须在 `rm -rf "$TARGET_DIR"` **之前** —— 拒了就必须保证现有那份原封不动。
+PRECHECK_JSON=$(cd "$SKILL_FORGE" && python3 -m daemon.precheck \
+    "$TMP_UPDATE" "https://github.com/$OWNER/$REPO.git" 2>/dev/null) || PRECHECK_JSON=""
+
+PRECHECK_OK=$(printf '%s' "$PRECHECK_JSON" | python3 -c "
+import json, sys
+try:
+    print('yes' if json.load(sys.stdin).get('ok') else 'no')
+except Exception:
+    print('no')
+" 2>/dev/null || echo "no")
+
+if [[ "$PRECHECK_OK" != "yes" ]]; then
+    REASON=$(printf '%s' "$PRECHECK_JSON" | python3 -c "
+import json, sys
+try:
+    print(json.load(sys.stdin).get('summary', '预检未给出结论'))
+except Exception:
+    print('预检无法执行（daemon/precheck.py 跑不起来？）')
+" 2>/dev/null || echo "预检无法执行")
+    rm -rf "$TMP_UPDATE"
+    echo "{\"error\": \"预检未通过，已拒绝更新：$REASON\"}" >&2
+    exit 5
+fi
+
+# 原子替换（只在预检通过之后才落地）
 rm -rf "$TARGET_DIR"
 mv "$TMP_UPDATE" "$TARGET_DIR"
 

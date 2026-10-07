@@ -14,18 +14,23 @@ bridge 监听 127.0.0.1:18970，原先没有任何鉴权 —— 于是用户在�
 
 ---
 
-## 密钥轮换（2026-10-05 加）
+## 密钥轮换（2026-10-05 加，同日改为**每 4 个扫描周期**一次）
 
 原先的注释写着"密钥刻意不轮换"，理由是"轮换后一旦 bridge 重启，已经打开的面板
 就会永远失联，直到下次扫描才恢复"。**那个理由是真的，但结论下错了。**
 正确做法不是"不轮换"，是**轮换 + 宽限期**：
 
-    watchdog 每周扫描时轮换 → 新面板拿新密钥
-    旧密钥继续接受 14 天（> 一个扫描周期）→ 已打开的面板不会当场失效
-    14 天后旧密钥自动作废
+    watchdog 每 4 个扫描周期轮换一次 → 新面板拿新密钥
+    旧密钥继续接受 35 天（> 轮换间隔 4 周）→ 已打开的面板不会当场失效
+    35 天后旧密钥自动作废
 
 原来的"永不轮换"意味着：密钥一旦泄露就是**永久且不可撤销**的。宽限期把这件事
-从"永久"降级成"最多 14 天"，代价是保留一份过期表 —— 很划算。
+从"永久"降级成"有上限"，代价是保留一份过期表 —— 很划算。
+
+**为什么是 4 个周期而不是每次**（用户 2026-10-05 定）：每次扫描都轮换会让
+"手里拿着旧密钥的已打开面板"这个窗口频繁出现。4 周期在两头之间取折中 ——
+密钥最多存活约 4 周（不是永久，也不是每周都抖一下）。
+计时状态存在 `templates/.bridge-rotation.json`，`rotate_if_due()` 是唯一的入口。
 
 ## 一个必须记住的陷阱
 
@@ -49,11 +54,17 @@ from pathlib import Path
 
 SKILL_ROOT = Path.home() / ".claude" / "skills" / "skill-forge"
 
-# 当前密钥。**纯文本**，格式与历史版本一致 —— 别的地方可能直接读它。
-KEY_FILE = SKILL_ROOT / "templates" / ".bridge-key"
-
-# 上一批仍在宽限期内的密钥（轮换时才写）
-PREV_FILE = SKILL_ROOT / "templates" / ".bridge-keys-prev.json"
+# ⚠️ 这里曾经有两个模块级常量 `KEY_FILE` 和 `PREV_FILE`，2026-10-06 删掉了。
+#
+# 问题不在"没人用"，在**它们指向的是写死的 SKILL_ROOT** —— 而
+# `_key_paths(root)` 才是真正的入口（它让调用方把整套东西挪到别处：
+# 测试、多实例）。两者并存时，`KEY_FILE` 会在测试改过 SKILL_ROOT 之后
+# **仍然指向用户真实的那把密钥**。
+#
+# 危害是具体的：`tests/test_bridge_auth.py` 里有一句
+# `print(f"密钥文件: {auth.KEY_FILE}")` —— 测试用的是临时目录，打印出来的
+# 却是用户真实密钥的路径。想看"测试动的是哪个文件"的人会被它带偏。
+# （该 print 已改为走 `_key_paths()`。冻结树复核 #43/#44。）
 
 # 面板在每个请求上带的头
 KEY_HEADER = "X-Skill-Forge-Key"
@@ -65,8 +76,18 @@ KEY_PLACEHOLDER = "/* __BRIDGE_KEY__ */ null"
 # file:// 页面发出的跨源请求，Origin 头就是字符串 "null"
 LOCAL_ORIGINS = frozenset({"null", "file://"})
 
-# 旧密钥的宽限期。必须 **大于** 一个扫描周期（7 天），否则面板会在下一次扫描前失效。
-GRACE_DAYS = 14
+# 旧密钥的宽限期。
+#
+# **必须大于轮换间隔** —— 这不是"最好这样"，是硬约束。
+# 轮换间隔从 1 个周期改成 4 个周期（28 天）之后，14 天就不够了：
+# 一份在轮换前夕生成的面板，它手里的密钥只能再活 14 天，
+# 而**下一个面板要等 4 周后才生成** —— 中间那两周，用户打开面板就是 403。
+# 取 35 天 = 4 周 + 1 周余量。
+GRACE_DAYS = 35
+
+# 每几个扫描周期轮换一次。改这个值时**同时看一眼 GRACE_DAYS**：
+# 宽限期必须大于 28（= ROTATE_EVERY × 7）天才成立。
+ROTATE_EVERY = 4
 
 PREV_VERSION = 1
 
@@ -176,6 +197,79 @@ def _key_paths(root=None):
     """
     base = Path(root) if root else SKILL_ROOT
     return base / "templates" / ".bridge-key", base / "templates" / ".bridge-keys-prev.json"
+
+
+# ---------------------------------------------------------------- 轮换计时
+
+def _state_path(root=None) -> Path:
+    """轮换计时文件。
+
+    单独一个文件、不和密钥文件合并，是为了让"计时坏了"和"密钥坏了"互不牵连：
+    计时文件读不出来最多是这一轮不轮换，而密钥文件读不出来会让所有请求 403。
+    """
+    base = Path(root) if root else SKILL_ROOT
+    return base / "templates" / ".bridge-rotation.json"
+
+
+def _load_scans_since(root=None) -> int:
+    """距上次轮换过了几个扫描周期。
+
+    **读不出来一律当 0**（而不是当"该轮换了"）：文件损坏时宁可推迟一次轮换，
+    也不要每轮扫描都换一次密钥 —— 后者会让面板反复失效，比不轮换更糟。
+    """
+    raw = _read_text(_state_path(root))
+    if not raw:
+        return 0
+    try:
+        n = json.loads(raw).get("scans_since_rotate", 0)
+    except (json.JSONDecodeError, AttributeError):
+        return 0
+    try:
+        return max(0, int(n))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _save_scans_since(n: int, root=None) -> None:
+    path = _state_path(root)
+    try:
+        _write_atomic(path, json.dumps(
+            {"version": 1, "scans_since_rotate": int(n)}, ensure_ascii=False))
+        _restrict(path)
+    except OSError:
+        # 落盘失败不能拖垮扫描。但要注意后果：计数没推进 = 这次不算数，
+        # 下一轮扫描会重新走到这里。**不会**退化成"每次扫描都轮换" ——
+        # 那需要计数能推进到 ROTATE_EVERY，而写不进去就永远推不动。
+        pass
+
+
+def rotation_state(root=None) -> dict:
+    """给人和给排查用：计时到哪了。"""
+    n = _load_scans_since(root)
+    return {
+        "scans_since_rotate": n,
+        "every": ROTATE_EVERY,
+        "next_rotation_in": max(0, ROTATE_EVERY - n),
+        "grace_days": GRACE_DAYS,
+    }
+
+
+def rotate_if_due(now: datetime = None, root=None) -> dict:
+    """按周期计数决定要不要轮换。**每轮扫描调用恰好一次。**
+
+    计数在这里自增；真正轮换后归零。调用方（watchdog）只该调这一个函数，
+    不要自己去判断"该不该换" —— 判定散成两处，迟早分叉。
+    """
+    n = _load_scans_since(root)
+    if n + 1 >= ROTATE_EVERY:
+        rotate(now, root)              # 内部已把计数归零
+        # 兜底再写一次：万一上面那次归零没落盘，计数会停在 ROTATE_EVERY-1，
+        # 下一轮扫描又满足条件 —— 那就退化成了"每次都轮换"，正好是这次要改掉的行为。
+        _save_scans_since(0, root)
+        return {"rotated": True, **rotation_state(root)}
+
+    _save_scans_since(n + 1, root)
+    return {"rotated": False, **rotation_state(root)}
 
 
 def get_or_create_key(root=None) -> str:
@@ -339,6 +433,9 @@ def rotate(now: datetime = None, root=None) -> str:
         new_key = secrets.token_urlsafe(32)
         _write_atomic(key_file, new_key)
         _restrict(key_file)
+    # 任何一次轮换都重启计时 —— 不管是扫描触发的还是 `--rotate` 手动触发的。
+    # 放在锁外：这里不再碰密钥文件，没必要占着那把锁。
+    _save_scans_since(0, root)
     return new_key
 
 
@@ -351,6 +448,7 @@ def status(now: datetime = None, root=None) -> dict:
         "previous_count": len(prev),
         "previous_expiry": [e["until"] for e in prev],
         "grace_days": GRACE_DAYS,
+        "rotation": rotation_state(root),
     }
 
 

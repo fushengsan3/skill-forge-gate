@@ -90,8 +90,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .badge-new { background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; }
 /* 这两个类原先只在 JS 里被引用，页面上没有任何规则 —— 角标会退回基础样式，
    跟 badge-new 长得不一样但不明显，所以一直没人注意。 */
-.badge-verified { background: rgba(46, 204, 113, .18); color: #2ecc71; }
-.badge-unverified { background: rgba(240, 192, 64, .15); color: var(--accent); }
+/* `.badge-verified` / `.badge-unverified` 已于 2026-10-06 删除（D1）——
+   它们背后是一个硬编码的一元来源白名单，见 skillCard() 里的说明。
+   真实的验证结论改在已安装列表里显示，用 `.installed-item .trust-*`。 */
+/* D3：来源站点自己的评级（目前只有 claudskills 有）。中性色 ——
+   它是别人给的分数，不是我们验过的结论，别让它长得像验证结果。 */
+.badge-grade { background: rgba(120, 120, 140, .15); color: var(--text-dim); }
 .badge-update { background: linear-gradient(135deg, #f093fb, #f5576c); color: #fff; }
 .badge-source { font-size: 10px; padding: 1px 6px; border-radius: 10px; }
 .badge-jl { background: rgba(79,195,247,0.2); color: var(--source-jl); border: 1px solid rgba(79,195,247,0.4); }
@@ -149,6 +153,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .installed-item .sha { font-family: monospace; font-size: 11px; color: var(--primary); background: rgba(102,126,234,0.1); padding: 2px 6px; border-radius: 4px; }
 .installed-item .btn-uninstall { font-size: 11px; background: none; border: 1px solid var(--secondary); color: var(--secondary); border-radius: 4px; padding: 2px 8px; cursor: pointer; }
 .installed-item .btn-uninstall:hover { background: var(--secondary); color: #fff; }
+.installed-item .self-tag { font-size: 11px; color: var(--text-dim); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; cursor: help; }
+/* D1：安装当时 L1–L5 的真实结论。
+   只有 `verified` 用强调色 —— 「未记录」和「未验」都不该长得像好消息：
+   历史条目（字段出现之前装的）会落进 unrecorded，把它画成绿的等于
+   用一个没有依据的结论补上另一个。 */
+.installed-item .trust { display: inline-block; margin-top: 3px; font-size: 11px; border-radius: 4px; padding: 1px 7px; cursor: help; border: 1px solid var(--border); color: var(--text-dim); }
+.installed-item .trust-verified { color: var(--accent); border-color: var(--accent); }
+.installed-item .trust-partial { color: var(--secondary); border-color: var(--secondary); }
+.installed-item .trust-unverified, .installed-item .trust-unrecorded { color: var(--text-dim); }
 /* R4-a：名单来自嵌入快照、或压根取不到时的说明行 */
 .installed-note { color: var(--text-dim); font-size: 13px; text-align: center; padding: 20px; }
 .installed-note.stale { color: var(--accent); font-size: 11px; text-align: left; padding: 0 0 8px; }
@@ -387,8 +400,13 @@ const LANG = {
     source_claudskills: 'ClaudSkills', source_external: '外部源', source_search: '搜索',
     rating_stars: 'Star', rating_score: '评分', rating_quality: '质量分', rating_match: '匹配',
     translate: '翻译', week_report: '周度发现报告', year: '年', month: '月', day: '日',
-    verified: '来源可信', unverified: '来源未知', pending_check: '待预检',
+    pending_check: '待预检',
+    grade_label: '来源评级', queued_at: '加入于',
     installed_skills: '已安装', loading: '加载中...', none_installed: '暂无已安装的 Skill', uninstall: '卸载',
+    is_self_tag: '本体', is_self_hint: '这是 skill-forge 自己，不能从面板卸载',
+    trust_verified: '已验', trust_partial: '部分验证', trust_unverified: '未验',
+    trust_unrecorded: '未记录',
+    trust_hint: '安装当时 L1–L5 的结论（存在 sources.json 里）。「未记录」= 装的时候还没有这个字段，不是「验过了」',
     installed_stale: 'Bridge 未运行 —— 以下是上次扫描时嵌入的快照，可能不是最新的',
     installed_offline: 'Bridge 未运行，且页面里没有嵌入的名单',
     uninstall_offline: 'Bridge 未运行，无法卸载。启动 Bridge 后再试。',
@@ -443,8 +461,13 @@ const LANG = {
     source_claudskills: 'ClaudSkills', source_external: 'External', source_search: 'Search',
     rating_stars: 'stars', rating_score: 'score', rating_quality: 'quality', rating_match: 'match',
     translate: 'Translate', week_report: 'Weekly Discovery Report', year: '-', month: '-', day: '',
-    verified: 'Trusted source', unverified: 'Unknown source', pending_check: 'Not checked yet',
+    pending_check: 'Not checked yet',
+    grade_label: 'grade', queued_at: 'queued',
     installed_skills: 'Installed', loading: 'Loading...', none_installed: 'No installed skills', uninstall: 'Uninstall',
+    is_self_tag: 'self', is_self_hint: 'This is skill-forge itself — it cannot be uninstalled from here',
+    trust_verified: 'verified', trust_partial: 'partial', trust_unverified: 'unverified',
+    trust_unrecorded: 'not recorded',
+    trust_hint: 'The L1–L5 verdict recorded at install time (kept in sources.json). "not recorded" means the field did not exist yet — it does NOT mean it passed.',
     installed_stale: 'Bridge not running — showing the snapshot embedded at last scan; it may be out of date',
     installed_offline: 'Bridge not running, and no snapshot is embedded in this page',
     uninstall_offline: 'Bridge not running, cannot uninstall. Start the bridge and try again.',
@@ -504,7 +527,16 @@ function setLang(lang) {
 }
 
 function applyLang() {
-  document.querySelectorAll('[data-lang]').forEach(el => {
+  // ⚠️ 选择器必须**同时**匹配 `data-lang-placeholder`。
+  //
+  // 搜索框只带这一个属性：`<input id="search-input" data-lang-placeholder="search_placeholder">`
+  // —— 它**没有** `data-lang`。所以以前那个 `[data-lang]` 根本选不到它，
+  // 下面那个 INPUT 分支**永远不可达**，placeholder 一次都没被设过
+  // （属性值本来就是空 → 搜索框里一片空白）。
+  //
+  // 这就是问题清单 #51。它一直没被发现，是因为症状是"功能不存在"而不是"没翻译"：
+  // 一个从来没有过 placeholder 的输入框，看起来就像是本来就没打算有。
+  document.querySelectorAll('[data-lang], [data-lang-placeholder]').forEach(el => {
     var key = el.getAttribute('data-lang');
     if (el.tagName === 'OPTION' && el.hasAttribute('data-lang-opt')) {
       // handled in renderSkills
@@ -529,11 +561,24 @@ function applyLang() {
 const SOURCE_CONFIG = {
   // ratingKey 而不是直接写死的标签 —— 原先这几行是硬编码中文，
   // 切到英文界面时评级标签仍然是「质量分 / 匹配」，是唯一漏翻的地方。
-  'jeremylongshore': { label: '社区精选', icon: '🔷', color: 'jl', ratingKey: 'rating_quality', ratingFn: function(s) { return (s.score || 0).toFixed(0); } },
-  'github-topic':    { label: 'GitHub', icon: '⭐', color: 'gh', ratingKey: 'rating_stars', ratingFn: function(s) { return (s.stars || 0).toLocaleString(); } },
-  'claudskills':     { label: 'ClaudSkills', icon: '📊', color: 'cs', ratingKey: 'rating_quality', ratingFn: function(s) { return (s.qualityScore || s.score || 0).toFixed(0); } },
-  'external':        { label: '外部源', icon: '📡', color: 'ext', ratingKey: 'rating_score', ratingFn: function(s) { return (s.score || s.stars || 0).toFixed(0); } },
-  'search':          { label: '搜索', icon: '🔍', color: 'search', ratingKey: 'rating_match', ratingFn: function(s) { return ((s.match_score || 0) * 100).toFixed(0) + '%'; } }
+  //
+  // ⚠️ 2026-10-07：这五个条目里原先各有一个 `label`（'社区精选' / 'GitHub' …），
+  // 已删除。它们**永远不会被读到** —— 绘制时那行是
+  //     LANG[currentLang]['source_' + src] || cfg.label
+  // 而 LANG 的五个 `source_*` 词条已经全覆盖，`|| cfg.label` 那半边是死代码。
+  // 两份来源名并存，迟早会走样（改了 LANG 忘了改这里，或反过来）。
+  //
+  // **注意 `label` 在别处仍然活着**：下面那个"未知来源"的 fallback 对象靠它
+  // 显示名字（见 renderSkills 里 `SOURCE_CONFIG[src] || { label: src, ... }`）。
+  // 删的只是这五个条目里那份多余的。
+  //
+  // 要加新来源：在 LANG 的 zh/en 两处各加一个 `source_<名字>` 词条即可，
+  // 不要在这里再补 label。
+  'jeremylongshore': { icon: '🔷', color: 'jl', ratingKey: 'rating_quality', ratingFn: function(s) { return (s.score || 0).toFixed(0); } },
+  'github-topic':    { icon: '⭐', color: 'gh', ratingKey: 'rating_stars', ratingFn: function(s) { return (s.stars || 0).toLocaleString(); } },
+  'claudskills':     { icon: '📊', color: 'cs', ratingKey: 'rating_quality', ratingFn: function(s) { return (s.qualityScore || s.score || 0).toFixed(0); } },
+  'external':        { icon: '📡', color: 'ext', ratingKey: 'rating_score', ratingFn: function(s) { return (s.score || s.stars || 0).toFixed(0); } },
+  'search':          { icon: '🔍', color: 'search', ratingKey: 'rating_match', ratingFn: function(s) { return ((s.match_score || 0) * 100).toFixed(0) + '%'; } }
 };
 
 // ============================================================
@@ -848,13 +893,46 @@ function renderInstalledList(skills, stale) {
       box.appendChild(mkEl('span', 'sha', s.installed_sha));
     }
     box.appendChild(mkEl('div', 'meta',
-      (s.installed_at ? String(s.installed_at).slice(0, 10) : '') + ' · ' + (s.type || '')));
+      (s.installed_at ? String(s.installed_at).slice(0, 10) : '') + ' · ' + (s.type || '')
+      // D3：monorepo 子 skill 的来源位置。根目录装的是空，就不显示。
+      + (s.subpath ? ' · ' + s.subpath : '')));
+
+    // 真实的验证结论。这是**唯一**有依据的地方 ——
+    // 发现卡上永远不该有它（那时候 L1–L5 还没跑过），
+    // 而这里显示的是安装当时留给 sources.json 的真值（daemon/installer.py）。
+    //
+    // ⚠️ 空 = **未记录**（这个字段出现之前装的条目），绝不能默认成"已验证"。
+    // 与 installer._trust_level() 对"没有结论"的处理一致：fail-closed。
+    var trust = s.trust_level || 'unrecorded';
+    var trustEl = mkEl('span', 'trust trust-' + trust, t('trust_' + trust));
+    // D-1：把"**为什么**是这个等级"放进提示 —— 只有等级没有理由的话，
+    // 一枚「部分验证」读了等于没读。而实测：只要 L2 被限流跳过，
+    // 每个 skill 都会是 partial，徽章对所有输入说同一句话。
+    // `trust_note` 由预检那几层的结论拼出来（installer._trust_note），
+    // 老条目没有这个字段 → 显示通用提示。
+    trustEl.title = s.trust_note
+      ? (t('trust_hint') + '\n\n' + s.trust_note)
+      : t('trust_hint');
+    if (s.trust_note) trustEl.textContent += ' ⓘ';
+    box.appendChild(trustEl);
     item.appendChild(box);
 
-    var unBtn = mkEl('button', 'btn-uninstall', '✕');
-    unBtn.title = t('uninstall');
-    unBtn.addEventListener('click', function() { uninstallSkill(s.name); });
-    item.appendChild(unBtn);
+    // 本体不带卸载按钮。
+    //
+    // `is_self` 这个字段后端一直在回（daemon/installed.py:46），但**从来没人读** ——
+    // 于是 skill-forge 自己在面板里跟别的 skill 长得一模一样，点一下 ✕ 就把自己删了，
+    // 而它的目录正是这个面板、这个 bridge 赖以存在的东西。
+    // 数据里早就写着"我是我自己"，只是没人看。这里补上。
+    if (s.is_self) {
+      var selfTag = mkEl('span', 'self-tag', t('is_self_tag'));
+      selfTag.title = t('is_self_hint');
+      item.appendChild(selfTag);
+    } else {
+      var unBtn = mkEl('button', 'btn-uninstall', '✕');
+      unBtn.title = t('uninstall');
+      unBtn.addEventListener('click', function() { uninstallSkill(s.name); });
+      item.appendChild(unBtn);
+    }
 
     frag.appendChild(item);
   });
@@ -1129,9 +1207,20 @@ function skillCard(s) {
   var useZh = currentLang === 'zh' && !!rawDescZh;
   var categoryLabel = LANG[currentLang].category_labels[s._category] || s._category;
 
-  // 验证状态：信任来源自动通过，其余标注未验证
-  var verifiedSources = ['jeremylongshore'];
-  var verified = verifiedSources.indexOf(s.source) >= 0;
+  // 「来源可信」徽章**已删除**（2026-10-06，D1）。
+  //
+  // 它原先是一个硬编码的一元白名单 `['jeremylongshore']`：来自该来源就打绿勾，
+  // 其余打黄警。问题有两层 ——
+  //   1. 它看起来像"这个 skill 被安全流水线验过"，而**发现卡上根本不可能有**
+  //      L1–L5 结论：那是安装时才跑的，发现阶段没有这个数据。
+  //   2. 它想提供的"这是谁发布的"信号，**上面那个来源徽章已经在显示了**
+  //      （srcCfg.icon + 来源名），所以这个绿勾只是在同一件事上再加一句
+  //      "我信/我不信"的价值判断，而且这个判断没有任何成文标准。
+  //
+  // 真实的验证结论现在显示在**已安装列表**里（那里确实有数据，
+  // 见 daemon/installer.py 落盘的 trust_level）。
+  // 同一个文件里早有先例：队列项也曾被标 verified，后来改成 pending ——
+  // 理由就是"排队的时候什么都还没检查过"。
 
   var btnText = isInstalled ? '✅ ' + (currentLang === 'zh' ? '已安装' : 'Installed')
     : inQueue ? t('queued')
@@ -1155,8 +1244,23 @@ function skillCard(s) {
   }
   titleRow.appendChild(mkEl('span', 'badge badge-source badge-' + srcCfg.color,
     srcCfg.icon + ' ' + (LANG[currentLang]['source_' + s.source] || srcCfg.label)));
-  titleRow.appendChild(mkEl('span', 'badge ' + (verified ? 'badge-verified' : 'badge-unverified'),
-    verified ? '✅ ' + t('verified') : '⚠ ' + t('unverified')));
+
+  // D3：把两个「只写不读」的字段接上界面 —— 数据本来就在，只是没人显示。
+  //
+  // 1) `source_label`：用户给**外部源**起的名字（daemon/fetcher.py 从
+  //    external_sources.json 的 label 带过来）。是他自己起的名，当然该看见 ——
+  //    否则一堆自配源在卡片上全长一个样。
+  // 2) `security_grade`：来源站点自己的评级，只有 claudskills 有。
+  //    **只做展示，刻意不参与排序** —— 它的取值域没探明，当成序数用可能是错的
+  //    （见 daemon/fetcher.py 里那段说明）。
+  // 两者都是外部内容，走 mkEl（textContent）而不是拼 HTML。
+  if (s.source_label) {
+    titleRow.appendChild(mkEl('span', 'badge badge-source', s.source_label));
+  }
+  if (s.security_grade) {
+    titleRow.appendChild(mkEl('span', 'badge badge-grade',
+      t('grade_label') + ' ' + s.security_grade));
+  }
   headerLeft.appendChild(titleRow);
 
   var descP = mkEl('p', 'card-desc', useZh ? rawDescZh : rawDesc);
@@ -1246,7 +1350,14 @@ function queueInstall(name, url) {
 
 function showQueue() {
   if (installQueue.length === 0) { alert(t('queue_empty')); return; }
-  var list = installQueue.map(function(q, i) { return (i+1) + '. ' + q.name + ' (' + t('pending_check') + ')'; }).join('\n');
+  // D3：`added_at` 以前只写不读。排队列表里显示"什么时候加进来的" ——
+  // 数据一直躺在队列项里，只是没人看。回答的是"这队列放了多久了"。
+  var list = installQueue.map(function(q, i) {
+    var when = q.added_at ? String(q.added_at).slice(0, 10) : '';
+    return (i+1) + '. ' + q.name
+      + (when ? '（' + t('queued_at') + ' ' + when + '）' : '')
+      + ' (' + t('pending_check') + ')';
+  }).join('\n');
 
   // ⚠️ 原生 confirm() 按规范**只返回 true/false**，没有第三个值。
   // 原先这里写着「[确定] 立即安装  [取消] 保留  [清空] 清除队列」三个选项，
@@ -1288,6 +1399,30 @@ function triggerInstall() {
             .map(function(x) { return '· ' + x.name + '：' + (x.error || '未知原因'); }).join('\n');
           if (why) msg += '\n\n' + why;
         }
+        // 装成功的那几条，也要把预检结论带出来。
+        //
+        // 后端 `installer.py` 一直在每个 result 里回 `verify`（L1–L5 的完整报告），
+        // 但前端**一个字段都不读** —— 于是用户看到的只有"安装完成 1/1 成功"。
+        // 那五层检查等于白跑：结论生成了、传过来了、在最后一步被扔了。
+        //
+        // 最要紧的是 `SKIPPED`：报告里写着"跳过"，面板上写着"成功"，
+        // 两者的差距正是"以为验过了"。见 安装部署说明 §2。
+        var vlines = (res.results || []).filter(function(x) {
+          return x && x.ok !== false && x.verify;
+        }).map(function(x) {
+          var v = x.verify || {};
+          var line = '· ' + (x.name || '') + '：' + (v.summary || '');
+          var skipped = (v.layers || []).filter(function(L) {
+            return L && L.verdict === 'SKIPPED';
+          }).map(function(L) { return L.name; });
+          if (skipped.length) {
+            line += '\n   ⚠ ' + (currentLang === 'zh'
+              ? '未跑：' + skipped.join('、') + ' —— 跳过不是通过'
+              : 'not run: ' + skipped.join(', ') + ' — skipped is not passed');
+          }
+          return line;
+        });
+        if (vlines.length) msg += '\n\n' + vlines.join('\n');
         alert(msg);
         installQueue = [];
         saveQueue();
@@ -1329,9 +1464,14 @@ function saveQueue() {
     bridgeFetch('', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
+      // 只发 pending。**不发** history / last_processed ——
+      // 那两个字段以前发过去也会被 bridge 丢掉（它以磁盘上的为准），
+      // 因为"装过什么"是一条审计线索，不该由页面来写：
+      // 面板是渲染不受信内容的地方，而这个后端是唯一能删本地文件的进程。
+      // 见 daemon/queue_bridge.py::_handle_save_queue 的注释。
       body: JSON.stringify({ version: 1, pending: installQueue.map(function(q) {
         return { skill_name: q.name, repo_url: q.url, added_at: q.added_at, trust_level: q.trust_level };
-      }), history: [], last_processed: null })
+      }) })
     }).catch(function(){});
   } catch(e) {}
 }

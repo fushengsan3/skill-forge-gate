@@ -44,6 +44,16 @@ SOURCES = {
     "alpha-skill": {
         "type": "skill", "url": "https://github.com/a/alpha",
         "installed_sha": "aaaa111122223333", "installed_at": "2026-01-01T10:00:00",
+        # D1：安装当时 L1–L5 的结论，落盘在这里
+        "trust_level": "verified",
+        # D-1：为什么是这个等级。全 PASS 时是空串（见 installer._trust_note）
+        "trust_note": "",
+    },
+    "legacy-skill": {
+        "type": "skill", "url": "https://github.com/a/legacy",
+        "installed_sha": "cafe000011112222", "installed_at": "2025-12-01T10:00:00",
+        # 这个字段出现**之前**装的条目 —— 没有 trust_level。
+        # 面板必须显示成「未记录」，绝不能默认成"已验证"。
     },
     "evil-skill": {
         "type": "skill", "url": "https://github.com/a/evil",
@@ -97,9 +107,26 @@ def main():
               f"{len(expected)} 项")
 
         # 2) 与 bridge 的 /installed 同形状（同函数产出，这里验证关键字段都在）
-        fields = {"name", "type", "url", "installed_sha", "installed_at", "is_self"}
+        #
+        # ⚠️ 这是**全等**断言，是故意的：嵌入路径和 bridge 路径必须产出完全相同的
+        # 形状，否则面板要维护两套渲染逻辑，早晚漂移成"在线时能看、离线时看不了"。
+        # 所以新增字段时**必须同步改这里** —— 2026-10-06 加 `trust_level`（D1）
+        # 时就撞上了它，那是它在正常工作，不是它碍事。
+        fields = {"name", "type", "url", "installed_sha", "installed_at", "is_self",
+                  "trust_level", "subpath", "trust_note"}
         got = set(embedded["_installed"][0].keys()) if embedded and embedded["_installed"] else set()
         check(got == fields, "嵌入名单字段与 bridge 一致", f"{sorted(got)}")
+
+        # ★ D1：trust_level 的**fail-closed 默认值**。
+        # 这是这个字段最容易出错的地方：漏掉它，面板就会把"没记录"显示成"已验"，
+        # 而那正是 D1 要根除的那种"没有依据的结论"。
+        by_name = {s["name"]: s for s in (embedded.get("_installed") or [])}
+        check(by_name.get("alpha-skill", {}).get("trust_level") == "verified",
+              "有结论的条目照常带出来",
+              repr(by_name.get("alpha-skill", {}).get("trust_level")))
+        check(by_name.get("legacy-skill", {}).get("trust_level") == "",
+              "★ 历史条目（字段出现之前装的）→ 空串，**不是**默认 verified",
+              repr(by_name.get("legacy-skill", {}).get("trust_level")))
         check(all(len(s["installed_sha"]) == 8 for s in embedded["_installed"]),
               "installed_sha 已截成 8 位（与 bridge 相同）")
 

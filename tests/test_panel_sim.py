@@ -94,7 +94,11 @@ checks = {
     "flattenData function": "function flattenData()",
     "renderSkills function": "function renderSkills()",
     "skillCard function": "function skillCard(s)",
-    "queueInstall function": "function queueInstall(name, url, needsDeepAudit)",
+    # 这个签名原先钉的是 `(name, url, needsDeepAudit)` —— 那是"L5 只在
+    # 需要深度审计时才跑"那套条件触发的残留。那套已经整个删掉了：
+    # L5 在**装前闸门**上无条件跑（前置缺失才跳过），所以面板这边
+    # 没有"要不要深审"这个开关，多一个参数反而是错的。
+    "queueInstall function": "function queueInstall(name, url)",
     "showQueue function": "function showQueue()",
     "updateQueueBadge function": "function updateQueueBadge()",
     "installQueue init": "installQueue = JSON.parse(localStorage.getItem",
@@ -165,11 +169,22 @@ if "data-install data-name=" in js_section:
 else:
     info.append("R8-2 PASS: 卡片改用 DOM 构建，无 data-* 拼接")
 
-# Verified flag
-if "s.source === 'jeremylongshore'" in js_section:
-    warnings.append("Verified flag hardcoded to 'jeremylongshore' source — not configurable for other trusted sources")
+# 发现卡上的「来源可信」徽章 —— 2026-10-06 已删除（D1），这里钉住它不再回来。
+#
+# ⚠️ 这条断言以前是**假通过**：它 grep 的是 `s.source === 'jeremylongshore'`，
+# 而真实代码写的是 `verifiedSources.indexOf(s.source)` —— 两个字符串永远对不上，
+# 所以它永远走 else 分支打印「configurable」，看起来一切正常。
+# 一个从不匹配的 grep 不是"没发现问题"，是"没有在看"。
+if "verifiedSources" in js_section or "badge-verified" in js_section:
+    errors.append("发现卡上又出现了「来源可信」徽章 —— 它背后是硬编码白名单，"
+                    "且发现阶段根本没有 L1–L5 结论（D1 已于 2026-10-06 删除）")
 else:
-    info.append("Verified flag: configurable")
+    info.append("D1 PASS：发现卡上没有「来源可信」徽章（真实结论改在已安装列表里显示）")
+# 反过来：真实的 trust_level 显示必须还在，别把功能一起删掉
+if "trust_level" not in js_section:
+    errors.append("已安装列表不再显示 trust_level —— D1 只是删了假徽章，真值要留着")
+else:
+    info.append("D1 PASS：已安装列表仍在读 trust_level")
 
 # Dead CSS
 if "--pct" in template and "stats-ring" in template:

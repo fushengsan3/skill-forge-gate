@@ -21,6 +21,7 @@ templates/install-queue.json|面板上标记的待安装队列。丢了 = 用户
 templates/external_sources.json|用户自己加的外部数据源。丢了 = 要重新配一遍。
 templates/.bridge-key|bridge 的共享密钥。**丢了 = 所有已打开的面板立刻 403**，要重启 bridge 并重开面板。
 templates/.bridge-keys-prev.json|旧密钥的宽限期表。丢了 = 宽限期失效，旧面板当场失联。
+templates/.bridge-rotation.json|轮换计时（距上次轮换过了几个扫描周期）。丢了 = 计时归零，下次轮换推迟一轮，不影响可用性。
 templates/translate-config.json|翻译后端配置（后端 / 模型 / 提示词）。丢了 = 要重新选一遍。
 daemon/last_scan.txt|上次扫描完成的时间戳。**丢了 = 立刻触发一轮新扫描**（要跑几十秒）。
 daemon/translation_cache.json|翻译缓存。丢了 = 下次扫描要重翻全部简介，很慢。

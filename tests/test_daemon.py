@@ -783,13 +783,109 @@ class TestWatchdog(unittest.TestCase):
         self.assertEqual(result["skill-a"]["installed_sha"], "abc123")
 
     def test_load_installed_skills_corrupt_json(self):
-        """验证损坏的 JSON 返回空字典"""
+        """损坏的 JSON 仍返回空字典，但**必须留痕**（2026-10-06 加，清单 #10）。
+
+        空字典在这个函数里的含义很重：调用方拿它判断"这个 skill 装过没有"，
+        空 == 一个都没装 == **现有 skill 会被全部报成"新发现"**。
+        所以"文件不存在"（真没装）与"文件在但读不出来"必须分开记 ——
+        以前两者都是安静地返回 {}。
+        """
         sources_file = self.skill_root / "sources.json"
         sources_file.write_text("{corrupt json!!!", encoding="utf-8")
 
-        from daemon.watchdog import load_installed_skills
-        result = load_installed_skills()
+        from daemon import watchdog
+        logged = []
+        real_log = watchdog.log
+        watchdog.log = lambda m: logged.append(m)
+        try:
+            result = watchdog.load_installed_skills()
+        finally:
+            watchdog.log = real_log
+
         self.assertEqual(result, {})
+        self.assertTrue(any("解析失败" in m for m in logged),
+                        f"损坏时应留一行日志，实际：{logged}")
+
+    def test_load_installed_skills_missing_file_is_silent(self):
+        """文件**不存在**时不记日志 —— 那才是"确实什么都没装"，是正常的。"""
+        from daemon import watchdog
+        logged = []
+        real_log = watchdog.log
+        watchdog.log = lambda m: logged.append(m)
+        try:
+            result = watchdog.load_installed_skills()
+        finally:
+            watchdog.log = real_log
+        self.assertEqual(result, {})
+        self.assertEqual(logged, [], "文件不存在不该记日志（那会变成噪声）")
+
+    def test_installed_snapshot_corrupt_is_logged(self):
+        """面板那条路（daemon/installed.py）同样要留痕（清单 #10）。
+
+        与 watchdog 那条是两个入口、同一个缺陷：sources.json 存在但解析失败时
+        都安静地变成空名单。面板上表现为"已安装：0" —— 用户读成"我的 skill 全没了"。
+        """
+        from daemon import installed as installed_mod
+        root = Path(self.skill_root)
+        (root / "sources.json").write_text("{not json at all", encoding="utf-8")
+
+        logged = []
+        real_log = installed_mod.log
+        installed_mod.log = lambda m: logged.append(m)
+        try:
+            snaps = installed_mod.installed_snapshot(skill_root=root)
+        finally:
+            installed_mod.log = real_log
+
+        self.assertEqual(snaps, [])
+        self.assertTrue(any("解析失败" in m for m in logged),
+                        f"损坏时应留一行日志，实际：{logged}")
+
+    def test_check_connectivity_http_codes(self):
+        """#32：403/429 是「可达但被限流」，**不是**「网络不通」。
+
+        这个区分有实际后果：限流时扫描该继续（少拿点数据总比整轮跳过强），
+        而"网络不通"要重试。把 403 当成不通，会让整个周扫描白跳一轮 ——
+        而 GitHub 的匿名限流（60 次/小时）恰恰很容易撞到。
+        """
+        import urllib.error
+        import urllib.request
+        from daemon import watchdog
+
+        real = urllib.request.build_opener
+
+        class _Raising:
+            def __init__(self, exc):
+                self.exc = exc
+
+            def open(self, *a, **k):
+                raise self.exc
+
+        cases = [
+            (urllib.error.HTTPError("u", 403, "Forbidden", None, None), True, "403 限流 → 可达"),
+            (urllib.error.HTTPError("u", 429, "Too Many", None, None), True, "429 限流 → 可达"),
+            (urllib.error.HTTPError("u", 500, "Server", None, None), False, "500 → 不可达"),
+            (urllib.error.HTTPError("u", 404, "NF", None, None), False, "404 → 不可达"),
+            (urllib.error.URLError("no route"), False, "URLError → 不可达"),
+            (TimeoutError("timeout"), False, "超时 → 不可达"),
+        ]
+        for exc, want, label in cases:
+            urllib.request.build_opener = lambda *a, **k: _Raising(exc)
+            try:
+                got = watchdog.check_connectivity()
+            finally:
+                urllib.request.build_opener = real
+            self.assertEqual(got, want, label)
+
+        class _Ok:
+            def open(self, *a, **k):
+                return None
+
+        urllib.request.build_opener = lambda *a, **k: _Ok()
+        try:
+            self.assertTrue(watchdog.check_connectivity(), "2xx 正常 → 可达")
+        finally:
+            urllib.request.build_opener = real
 
     # ---- filter_skills 测试 ----
 
@@ -966,6 +1062,55 @@ class TestWatchdog(unittest.TestCase):
         main()
         mock_dialog.assert_called_once()
         self.assertEqual(mock_try.call_count, MAX_RETRIES)
+
+    @patch("daemon.watchdog.show_error_dialog")
+    @patch("daemon.watchdog.time.sleep")
+    @patch("daemon.watchdog.try_start")
+    def test_main_dialog_failure_does_not_mark_skipped(self, mock_try, mock_sleep, mock_dialog):
+        """★ 对话框**创建失败**（返回 0）时，绝不能当成「用户选择跳过本周」。
+
+        `MessageBoxW` 创建失败时返回 0；而 watchdog 是**任务计划**拉起的 ——
+        那种会话里未必有可交互桌面，弹框失败是真实可能的。
+
+        以前那个分支是裸 `else`，把 0 和"用户点了 Abort"混成一件事，后果是：
+        **静默写「已跳过」标记 → 7 天不再扫描**，而日志里写的是
+        "用户选择跳过本周" —— 一句会让人以为"是用户自己决定的"的谎话。
+
+        2026-10-07 实测确认：改动前 choice = 0 / -1 都会走到写标记那一步。
+        """
+        from daemon.watchdog import main, MAX_RETRIES  # noqa: F401
+
+        timestamp_file = self.skill_root / "daemon" / "last_scan.txt"
+        if timestamp_file.exists():
+            timestamp_file.unlink()
+
+        mock_try.return_value = False
+        mock_dialog.return_value = 0          # 0 = 弹框创建失败
+
+        main()
+        mock_dialog.assert_called_once()
+        self.assertFalse(
+            timestamp_file.exists(),
+            "★ 弹框失败时**不该**写「已跳过」标记 —— 那会静默停扫 7 天")
+
+    @patch("daemon.watchdog.show_error_dialog")
+    @patch("daemon.watchdog.time.sleep")
+    @patch("daemon.watchdog.try_start")
+    def test_main_abort_still_marks_skipped(self, mock_try, mock_sleep, mock_dialog):
+        """对照组：用户**真的**点了 Abort，跳过标记照写（别把功能一起关掉）。"""
+        from daemon.watchdog import main, IDABORT
+
+        timestamp_file = self.skill_root / "daemon" / "last_scan.txt"
+        if timestamp_file.exists():
+            timestamp_file.unlink()
+
+        mock_try.return_value = False
+        mock_dialog.return_value = IDABORT
+
+        main()
+        self.assertTrue(
+            timestamp_file.exists(),
+            "用户主动选择跳过本周时，标记必须写上（否则下一轮又弹一次）")
 
     @patch("daemon.watchdog.show_error_dialog")
     @patch("daemon.watchdog.time.sleep")
