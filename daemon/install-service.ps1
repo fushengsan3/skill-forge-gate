@@ -1,4 +1,4 @@
-# Skill Forge — 注册 Windows 开机自启任务
+# Skill Forge Gate — 注册 Windows 开机自启任务
 # 以管理员权限运行此脚本以安装守护进程
 # 用法: powershell -ExecutionPolicy Bypass -File install-service.ps1
 
@@ -52,7 +52,7 @@ if (-not (Test-Path $scriptPath)) {
     exit 1
 }
 
-Write-Host "✅ Skill Forge: $skillForgePath"
+Write-Host "✅ Skill Forge Gate: $skillForgePath"
 
 # ============================================================
 # 3. 删除已存在的任务
@@ -91,7 +91,7 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -Description "Skill Forge 守护进程 — 每周检查新 skill 并通知用户" `
+    -Description "Skill Forge Gate 守护进程 — 每周检查新 skill 并通知用户" `
     -Force
 
 # ============================================================
@@ -100,7 +100,7 @@ Register-ScheduledTask `
 $registered = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 if ($registered) {
     Write-Host ""
-    Write-Host "✅ Skill Forge 守护进程已注册为开机自启任务"
+    Write-Host "✅ Skill Forge Gate 守护进程已注册为开机自启任务"
     Write-Host "   任务名称: $taskName"
     Write-Host "   下次登录后自动延迟启动（随机 0-2 分钟）"
     Write-Host ""

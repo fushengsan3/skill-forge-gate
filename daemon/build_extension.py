@@ -418,7 +418,7 @@ def build(src_dir: Path = None, out_dir: Path = None, panel_file: Path = None,
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="构建 Skill Forge 浏览器扩展（零权限启动器）")
+    parser = argparse.ArgumentParser(description="构建 Skill Forge Gate 浏览器扩展（零权限启动器）")
     parser.add_argument("--out", help="输出目录（默认 ~/.claude/skills/skill-forge/extension）")
     parser.add_argument("--panel", help="面板 HTML 路径（默认 .../discover/latest.html）")
     parser.add_argument("--src", help="扩展模板目录（默认 .../templates/extension）")
@@ -437,7 +437,7 @@ def main(argv=None):
         return 1
 
     print("=" * 60)
-    print("Skill Forge 扩展构建" + ("（dry-run）" if result["dry_run"] else ""))
+    print("Skill Forge Gate 扩展构建" + ("（dry-run）" if result["dry_run"] else ""))
     print("=" * 60)
     print(f"输出目录：{result['out_dir']}")
     print(f"面板地址：{result['panel_uri']}")

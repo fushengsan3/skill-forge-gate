@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Skill Forge 守护进程 — 每周扫描新 skill 并通知用户
+Skill Forge Gate 守护进程 — 每周扫描新 skill 并通知用户
 通过 Windows 任务计划程序开机自启，pythonw.exe 静默运行
 """
 import time
@@ -57,7 +57,7 @@ def show_error_dialog(reason: str) -> int:
         f"[重试] 立即重新扫描\n"
         f"[1小时后提醒] 暂时跳过，稍后再试\n"
         f"[跳过本周] 安静退出，下周再试",
-        "Skill Forge — 守护进程启动失败",
+        "Skill Forge Gate — 守护进程启动失败",
         MB_ABORTRETRYIGNORE | MB_ICONWARNING
     )
 
@@ -179,7 +179,7 @@ def run_weekly_scan():
     message = "，".join(msg_parts) if msg_parts else "无新发现"
 
     send_notification(
-        title="🔧 Skill Forge — 周度扫描完成",
+        title="🔧 Skill Forge Gate — 周度扫描完成",
         message=f"本周发现：{message}",
         panel_path=str(discover_dir / "latest.html")
     )

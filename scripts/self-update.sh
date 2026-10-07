@@ -1,5 +1,5 @@
 #!/bin/bash
-# Skill Forge 自我更新
+# Skill Forge Gate 自我更新
 #
 # 流程：留档（带用途标注）→ 拉取 → 替换 → 自检 → 成功 / 回滚
 #
@@ -63,7 +63,7 @@ write_manifest() {
     local json="$dir/manifest.json"
 
     {
-        echo "# Skill Forge 自更新留档"
+        echo "# Skill Forge Gate 自更新留档"
         echo
         echo "- 留档时间：$stamp"
         echo "- 更新前版本：\`${old_sha:-未知}\`"
@@ -130,8 +130,16 @@ write_manifest() {
     } > "$json"
 }
 
-json_escape() {  # 够用的转义：反斜杠、双引号、换行
-    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr -d '\n'
+json_escape() {  # 够用的转义：反斜杠、双引号，并删掉所有控制字符
+    # `tr -d '\n\r'` 里的 **\r 不是可有可无的**：\r 在 JSON 里是非法控制字符，
+    # 漏删就会生成一个 json.loads 打不开的 manifest.json。
+    # 什么时候会漏进来：文件被检出成 CRLF 时（Git for Windows 默认行为），
+    # 下面 `while read` 读到的每一行行尾都挂着一个 \r。
+    # .gitattributes 已经把行尾钉死成 LF，但那份防护管不到
+    # "用户用记事本改过 data-paths.txt" 这种情况，所以这里再兜一层。
+    # \t 一并换成空格，理由是同一个。
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' \
+        | tr -d '\n\r' | tr '\t' ' '
 }
 
 # 把 snapshot 拷回 SKILL_FORGE（回滚用）
@@ -163,7 +171,16 @@ DATA_PATHS_FILE="$SCRIPT_DIR/data-paths.txt"
 
 DATA_PATHS=()
 while IFS= read -r line; do
+    # 先砍行尾的 \r。这一步**必须**在空行判断之前 ——
+    # CRLF 文件里的空行读出来是 "\r" 而不是 ""，`${line// }` 只吃空格、
+    # 不吃 \r，于是空行判不成空行，变成一条"数据项"。它的路径和用途都是
+    # 那个裸 \r，最后写出一个 `"path": "\r"` 的非法 manifest.json。
+    # （2026-10-07 实测：test_self_update 就是这么炸的。）
+    line="${line%$'\r'}"
     [[ -z "${line// }" || "$line" == \#* ]] && continue
+    # 清单格式只有一种：`相对路径|用途`。没有 `|` 的行不是数据项 ——
+    # 这里宁可停下来报错，也不要把半行东西当路径拿去 cp/rm。
+    [[ "$line" == *"|"* ]] || die "数据清单这行格式不对（缺少 '|'）：$line" 8
     DATA_PATHS+=("$line")
 done < "$DATA_PATHS_FILE"
 [[ ${#DATA_PATHS[@]} -gt 0 ]] || die "数据清单是空的，不敢动任何东西" 3
@@ -264,7 +281,7 @@ json_out "{\"phase\": \"backup\", \"path\": \"$BACKUP_PATH\", \"manifest\": \"$B
 # 回滚脚本：一条命令恢复到更新前
 cat > "$BACKUP_PATH/ROLLBACK.sh" <<ROLLBACK_EOF
 #!/bin/bash
-# 一键回滚 Skill Forge 到 $TIMESTAMP 那次自更新之前的状态。
+# 一键回滚 Skill Forge Gate 到 $TIMESTAMP 那次自更新之前的状态。
 # 由 scripts/self-update.sh 生成。
 set -euo pipefail
 SKILL_FORGE="\${SKILL_FORGE_DIR:-$(abs_path "$SKILL_FORGE")}"

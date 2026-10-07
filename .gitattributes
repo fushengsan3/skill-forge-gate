@@ -1,0 +1,29 @@
+# 行尾一律钉死成 LF。
+#
+# 为什么非要写这个文件：Git for Windows 默认 `core.autocrlf=true`，会把仓库里的
+# LF 在检出时悄悄换成 CRLF。而这个仓库里全是 shell / Python / JSON / YAML，
+# 其中有两类东西会被 CRLF **静默**弄坏（不报错，只是结果不对）：
+#
+#   1. shell 脚本。`set -euo pipefail` 变成 `set -euo pipefail\r`，
+#      `\r` 是行尾命令名的一部分，`[[ ... ]] && continue` 会去执行 `continue\r`。
+#   2. 任何「按行读、但不 strip `\r`」的代码。最典型的受害者是**空行** ——
+#      在 CRLF 文件里它读出来是一个只剩 `\r` 的字符串，不是空字符串，
+#      于是 `[[ -z ... ]]` 判不出它是空行，它就被当成一条真实数据。
+#      2026-10-07 的 `scripts/self-update.sh` 就是这么生成了一个非法
+#      `manifest.json`（`"path": "\r"`）—— json.loads 直接抛异常。
+#      deploy.py 之所以没事，只是因为它碰巧用了 Python 的 `.strip()`。
+#
+# 别依赖"我的机器上 autocrlf 是关的"—— 这个仓库是公开的，
+# 每个在 Windows 上 clone 的人都用的是默认值。
+* text=auto eol=lf
+
+# 万一以后加了二进制资源，别让上面的规则去动它们
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.zip  binary
+*.gz   binary
+*.exe  binary
+*.dll  binary

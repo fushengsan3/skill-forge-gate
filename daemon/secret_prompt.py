@@ -122,7 +122,7 @@ def ask_and_store(name: str):
         return False, "credentials_unavailable"
 
     title, prompt, hint = PROMPTS.get(
-        name, ("Skill Forge", f"请输入 {name}：", "")
+        name, ("Skill Forge Gate", f"请输入 {name}：", "")
     )
 
     if not _dialog_lock.acquire(blocking=False):

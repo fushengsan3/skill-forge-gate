@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Skill Forge 守护进程测试套件
+Skill Forge Gate 守护进程测试套件
 测试 fetcher, classifier, notifier, watchdog 四大模块
 """
 import unittest
@@ -617,17 +617,17 @@ class TestNotifier(unittest.TestCase):
     def test_send_notification_powershell_formatting(self, mock_run):
         """验证 PowerShell 脚本包含正确的 Toast 模板参数"""
         from daemon.notifier import send_notification
-        send_notification("Skill Forge Update", "3 new skills found")
+        send_notification("Skill Forge Gate Update", "3 new skills found")
 
         mock_run.assert_called_once()
         ps_script = mock_run.call_args[0][0][3]
         self.assertIn("ToastNotificationManager", ps_script)
         self.assertIn("ToastText02", ps_script)
         # 脚本是**固定模板** —— 一个字都不随入参变，所以不可能被注入
-        self.assertNotIn("Skill Forge Update", ps_script)
+        self.assertNotIn("Skill Forge Gate Update", ps_script)
         self.assertNotIn("3 new skills found", ps_script)
         env = mock_run.call_args[1].get("env") or {}
-        self.assertEqual(env.get("SKILL_FORGE_TOAST_TITLE"), "Skill Forge Update")
+        self.assertEqual(env.get("SKILL_FORGE_TOAST_TITLE"), "Skill Forge Gate Update")
         self.assertEqual(env.get("SKILL_FORGE_TOAST_MESSAGE"), "3 new skills found")
 
     @patch("subprocess.run")
@@ -677,7 +677,7 @@ class TestNotifier(unittest.TestCase):
         from daemon.notifier import send_notification
         try:
             send_notification(
-                "Skill Forge - Test Notification",
+                "Skill Forge Gate - Test Notification",
                 "This is a test notification from the daemon test suite. Found 3 new skills."
             )
         except Exception as e:

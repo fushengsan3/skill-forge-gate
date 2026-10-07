@@ -86,7 +86,7 @@ if __name__ == "__main__":
         panel_path = sys.argv[3] if len(sys.argv) > 3 else None
     else:
         data = json.loads(sys.stdin.read())
-        title = data.get("title", "Skill Forge")
+        title = data.get("title", "Skill Forge Gate")
         message = data.get("message", "")
         panel_path = data.get("panel_path")
 
