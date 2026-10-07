@@ -37,8 +37,17 @@ _dialog_lock = threading.Lock()
 PROMPTS = {
     credentials.GITHUB_TOKEN: (
         "GitHub 个人访问令牌 (PAT)",
-        "粘贴你的 GitHub Token。\n它将存进 Windows 凭据管理器，用来把 API 限流从 60 次/小时提到 5000 次/小时。",
-        "创建入口：GitHub → Settings → Developer settings → Personal access tokens。\n留空或取消则维持现状（不配置）。",
+        # ⚠️ 2026-10-07：原话说"用来把 API 限流从 60/小时提到 5000/小时" —— 那只是
+        # **读**的用途。实测撞到过：一个只为提限流建的 fine-grained token 是**只读**的，
+        # 拿它 `git push` 会 403（`Permission to <owner>/<repo> denied`）。
+        # 要推代码就得有 **Contents: Read and write**。
+        "粘贴你的 GitHub Token。\n"
+        "它将存进 Windows 凭据管理器，用于两件事：\n"
+        "  · 把 GitHub API 限流从 60 次/小时提到 5000 次/小时（**读**）\n"
+        "  · 推送到你自己的仓库（**写** —— 需要 Contents: Read and write）",
+        "创建入口：GitHub → Settings → Developer settings → Personal access tokens。\n"
+        "fine-grained token 要按仓库授权，别只勾只读，否则推送会 403。\n"
+        "留空或取消则维持现状（不配置）。",
     ),
     credentials.AI_TOKEN: (
         "AI 供应商密钥",
