@@ -140,7 +140,8 @@ def read_tree(base: Path) -> dict:
     return out
 
 
-def run_update(fake_root: Path, bin_dir: Path, new_version: Path, env_extra=None):
+def run_update(fake_root: Path, bin_dir: Path, new_version: Path, env_extra=None,
+               script: Path = None):
     env = os.environ.copy()
     env["SKILL_FORGE_DIR"] = str(fake_root)
     env["SF_FAKE_NEW_VERSION"] = str(new_version)
@@ -149,7 +150,7 @@ def run_update(fake_root: Path, bin_dir: Path, new_version: Path, env_extra=None
         env.pop(k, None)
     if env_extra:
         env.update(env_extra)
-    return bash_run(SCRIPT, env=env)
+    return bash_run(script or SCRIPT, env=env)
 
 
 def setup(tmp: Path, tag: str):
@@ -170,6 +171,70 @@ def setup(tmp: Path, tag: str):
     return fake_root, new_version, bin_dir
 
 
+def check_crlf_manifest(tmp: Path):
+    """清单是 CRLF 时，留档里的 manifest.json 仍然必须是合法 JSON。
+
+    2026-10-07 的真实故障（就是这条测试要钉住的东西）：
+    Git for Windows 的默认配置 `core.autocrlf=true` 会把仓库检出成 CRLF。
+    于是 `while IFS= read -r line` 读出来的**空行是 "\r" 而不是 ""** ——
+    跳过空行的判断只吃空格（`${line// }`），不吃 \r，判不出它是空行，
+    那个空行就成了数组里的一条"数据项"。
+
+    它的路径和用途都是那个裸 \r，最终写出 `"path": "\r"` ——
+    \r 在 JSON 里是**非法控制字符**，json.loads 当场抛异常。
+    整份留档等于废了，而人只有真的去回滚时才会发现。
+
+    这个 bug 只在 CRLF 检出下出现，LF 机器上跑一万遍也看不见，
+    所以必须专门喂一份 CRLF 清单进去。
+    """
+    print("\n" + "-" * 60)
+    print("清单是 CRLF（Windows 的默认检出方式）")
+    print("-" * 60)
+
+    # 脚本优先读**自己旁边**的 data-paths.txt，所以把脚本和一份 CRLF 清单
+    # 单独放一个目录里跑，就能精确地把"CRLF 输入"喂给真实的代码路径 ——
+    # 不是拿一份复制品去测一个复制的逻辑。
+    box = tmp / "crlf"
+    box.mkdir(exist_ok=True)
+    shutil.copy2(SCRIPT, box / "self-update.sh")
+    lf = (ROOT / "scripts" / "data-paths.txt").read_text(encoding="utf-8")
+    (box / "data-paths.txt").write_bytes(lf.replace("\n", "\r\n").encode("utf-8"))
+
+    fake_root, new_version, bin_dir = setup(tmp, "crlf")
+    proc = run_update(fake_root, bin_dir, new_version, script=box / "self-update.sh")
+    check(proc.returncode == 0, "CRLF 清单下自更新正常跑完",
+          f"rc={proc.returncode} {(proc.stderr or '')[:200]}")
+
+    backups = sorted((fake_root / ".backup").glob("self-update-*"))
+    check(bool(backups), "CRLF 清单下也留下了留档")
+    if not backups:
+        return
+    arc = backups[-1]
+
+    raw = (arc / "manifest.json").read_bytes()
+    check(b"\r" not in raw, "manifest.json 里没有裸 CR（\\r 是非法控制字符）")
+    try:
+        mj = json.loads(raw.decode("utf-8"))
+        err = ""
+    except Exception as e:              # noqa: BLE001 —— 崩在哪种 JSON 错误上都算失败
+        mj, err = None, f"{type(e).__name__}: {e}"
+    check(mj is not None, "manifest.json 能被 json.loads 读开", err)
+    if mj is None:
+        return
+
+    # 清单条目必须和 data-paths.txt 逐条对应 —— 多一条就是"空行被当成了数据"
+    expected = [ln.split("|", 1)[0].rstrip("/") for ln in lf.splitlines()
+                if ln.strip() and not ln.startswith("#")]
+    got = [d["path"] for d in mj.get("data_paths", [])]
+    check(got == expected, "条目与清单逐条对应（空行没混进来）",
+          f"生成 {len(got)} 条 / 期望 {len(expected)} 条")
+    bad = [p for p in got if any(c < " " or c == "\x7f" for c in p)]
+    check(not bad, "没有把控制字符当成路径", repr(bad))
+
+    # MANIFEST.md 是同一批字符串拼出来的表格，同样不能带 CR
+    check(b"\r" not in (arc / "MANIFEST.md").read_bytes(), "MANIFEST.md 里也没有裸 CR")
+
+
 def main():
     print("=" * 60)
     print("自更新测试（P0-7）")
@@ -182,6 +247,7 @@ def main():
     tmp = Path(tempfile.mkdtemp(prefix="sf-su-"))
     try:
         check_success_path(tmp)
+        check_crlf_manifest(tmp)
         check_clone_failure_changes_nothing(tmp)
         check_rollback(tmp)
         check_list(tmp)

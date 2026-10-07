@@ -1,4 +1,4 @@
-// Skill Forge 启动器 —— 零权限。
+// Skill Forge Gate 启动器 —— 零权限。
 //
 // 这个扩展**故意**一个 permissions 都不声明，也不声明 host_permissions、
 // content_scripts、web_accessible_resources。它做的事只有一件：

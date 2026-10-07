@@ -1,4 +1,4 @@
-# Skill Forge — 注册队列桥接（Bridge）开机自启任务
+# Skill Forge Gate — 注册队列桥接（Bridge）开机自启任务
 #
 # R4-b：把 bridge 从 watchdog 里拆出来，做成独立常驻服务。
 #
@@ -102,7 +102,7 @@ try {
         -Trigger $trigger `
         -Settings $settings `
         -Principal $principal `
-        -Description "Skill Forge 队列桥接 — 常驻 127.0.0.1:18970，供面板读已装列表、执行安装/卸载" `
+        -Description "Skill Forge Gate 队列桥接 — 常驻 127.0.0.1:18970，供面板读已装列表、执行安装/卸载" `
         -Force -ErrorAction Stop | Out-Null
     Write-Host "✅ 已注册计划任务（带崩溃自动重启）"
 } catch {

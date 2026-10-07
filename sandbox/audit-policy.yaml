@@ -1,4 +1,4 @@
-# Skill Forge — L5 静态审计策略
+# Skill Forge Gate — L5 静态审计策略
 #
 # ⚠️ 这份文件**只描述 L5 真正能做到的事**。由 `verify/audit_policy.py` 读取，
 #    L3（skill 文本）和 L5（模型声明的工具调用）都按它判定。

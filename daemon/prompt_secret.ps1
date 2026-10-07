@@ -1,4 +1,4 @@
-# Skill Forge — 原生密钥输入框
+# Skill Forge Gate — 原生密钥输入框
 #
 # 由 bridge 按需唤起（见 daemon/secret_prompt.py）。设计要点：
 #
@@ -15,7 +15,7 @@
 # 退出码: 0=成功(base64 已写入 stdout)  2=用户取消  3=空值  1=内部错误
 
 param(
-    [string]$Title  = "Skill Forge",
+    [string]$Title  = "Skill Forge Gate",
     [string]$Prompt = "请输入密钥：",
     [string]$Hint   = ""
 )

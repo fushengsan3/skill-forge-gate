@@ -225,7 +225,7 @@ def write_archive(dst: Path, stamp: str, data_paths: list) -> Path:
         rows.append(f"| `{rel}` | {purpose} | {'已备份' if present else '不存在'} |")
     (archive / "MANIFEST.md").write_text(
         "\n".join([
-            "# Skill Forge 部署留档",
+            "# Skill Forge Gate 部署留档",
             "",
             f"- 留档时间：{stamp}",
             f"- 运行时目录：`{dst}`",
@@ -269,7 +269,7 @@ def write_archive(dst: Path, stamp: str, data_paths: list) -> Path:
     rollback = archive / "ROLLBACK.sh"
     rollback.write_text(
         "#!/bin/bash\n"
-        f"# 一键回滚 Skill Forge 运行时到 {stamp} 部署之前的状态。\n"
+        f"# 一键回滚 Skill Forge Gate 运行时到 {stamp} 部署之前的状态。\n"
         "# 由 scripts/deploy.py 生成。\n"
         "set -euo pipefail\n"
         f'DST="${{SKILL_FORGE_DIR:-{dst}}}"\n'
@@ -536,7 +536,7 @@ def main(argv=None):
                     allow_untracked=args.allow_untracked)
 
     print("=" * 60)
-    print("Skill Forge 部署" + ("（dry-run，未落盘）" if result["dry_run"] else ""))
+    print("Skill Forge Gate 部署" + ("（dry-run，未落盘）" if result["dry_run"] else ""))
     print("=" * 60)
     print(f"源　：{result['src']}")
     print(f"目标：{result['dst']}")
