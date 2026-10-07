@@ -42,7 +42,7 @@ $scriptPath = "$skillForgePath\daemon\watchdog.py"
 
 if (-not (Test-Path $skillForgePath)) {
     Write-Host "错误：skill-forge 目录不存在：$skillForgePath"
-    Write-Host "运行: git clone https://github.com/<your-account>/skill-forge.git $skillForgePath"
+    Write-Host "运行: git clone https://github.com/fushengsan3/skill-forge-gate.git $skillForgePath"
     exit 1
 }
 

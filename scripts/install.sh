@@ -124,8 +124,9 @@ fi
 # 与面板那条路（daemon/installer.py）**共用同一个模块** —— 两条路各写一套
 # 判定，迟早会分叉，而分叉的那一边就是没人看着的那一边。
 #
-# 判定从严：REJECT / REVIEW 都拒（REVIEW 的定义是"需要人看一眼"，
-# 而这条脚本路径上没有那个人 —— 退回给 Claude，由它读报告再决定）。
+# 判定以 daemon/precheck.py 为准：**只拒 REJECT**。REVIEW 不拦 ——
+# 它会装上，但 sources.json 里标 partial（见 installer._trust_level）。
+# 别把 REVIEW 读成"被拦下了"。
 PRECHECK_JSON=$(cd "$SKILL_FORGE" && "$PYTHON" -m daemon.precheck \
     "$TMP_TARGET" "https://github.com/$OWNER/$REPO.git" 2>/dev/null) || PRECHECK_JSON=""
 
