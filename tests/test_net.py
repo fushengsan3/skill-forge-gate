@@ -178,6 +178,30 @@ def main():
           "被跟踪的文件里都没有具体代理地址（文档也一律用占位符）",
           "仍在：" + "; ".join(offenders) if offenders else "")
 
+    # ---- 7. ★ 历史里也不许有（2026-10-15 补）------------------------
+    #
+    # 为什么补这一条：上一条只扫**工作区**，而清理历史时恰恰是这里漏了 ——
+    # 全局替换把"要清掉的地址"换成了另一个具体地址，那个值从此进了全部历史提交；
+    # 工作区是干净的，于是测试全绿，**而仓库并不干净**。
+    # 一条只覆盖一半的钉子，比没有这条钉子更危险：它会让人以为检查过了。
+    print("\n--- 7. ★ 全历史里也不许出现具体代理地址 ---")
+    revs = subprocess.run(["git", "rev-list", "--all"], cwd=str(ROOT),
+                          capture_output=True, text=True).stdout.split()
+    if not revs:
+        print("  (跳过：不在 git 仓库里，或没有任何提交)")
+    else:
+        hist = []
+        for rev in revs:
+            args = ["git", "grep", "-qIF"]
+            for needle in HARDCODED:
+                args += ["-e", needle]
+            args.append(rev)
+            if subprocess.run(args, cwd=str(ROOT), capture_output=True).returncode == 0:
+                hist.append(rev[:8])
+        check(not hist,
+              f"全部 {len(revs)} 个提交的树里都没有具体代理地址",
+              "仍在：" + ", ".join(hist[:6]) if hist else "")
+
     return finish()
 
 
