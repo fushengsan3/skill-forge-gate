@@ -130,6 +130,49 @@ def run_weekly_scan():
     for cat_name, skill_list in categorized.get("categories", {}).items():
         translate_skills(skill_list)
 
+    # 3.6 功能板块：按学术 / 文本 / 代码三个板块**另去搜**更多项目，算高星榜。
+    #
+    # 为什么不是"从上面的 skills 里挑"：三条主源拉的是别人整理好的
+    # Claude Code 插件清单，学术方向的项目在那种清单里天然就少 ——
+    # 它们多半是通用研究工具，不会被打成插件标签。所以必须主动搜。
+    #
+    # 配额：默认 15 次 GitHub 请求（3 板块 × 5 关键词 × 1 页）。
+    # 失败一律降级成空榜，不让整轮扫描挂掉；面板会如实显示"本板块暂无"。
+    sections_payload = {}
+    try:
+        from daemon.fetcher import fetch_section_candidates
+        from daemon.sections import build_rankings, tag_skills
+        from daemon.translate import translate_skills
+
+        candidates = tag_skills(fetch_section_candidates())
+        sections_payload = build_rankings(candidates)
+
+        # 翻译**榜上要显示的那几条**（三个板块 × TOP_N，去重后约 24 条）。
+        #
+        # 为什么不翻全部候选：translate_skills 是逐条翻、每条还要 sleep 0.3s
+        # 躲 Google 的限流（见 daemon/translate.py），几百条候选会把扫描拖上
+        # 好几分钟；而面板只显示每榜前 N 条 —— 翻那些不显示的纯属白花。
+        # 命中缓存的条目零成本，所以每周只有新进榜的几条要真翻。
+        #
+        # 注意 build_rankings 返回的是**同一批 dict 的引用**，所以这里改
+        # item 就等于改 payload 里那份，不用回填。
+        shown, seen = [], set()
+        for board in sections_payload.values():
+            for item in (board.get("items") or []):
+                key = item.get("url") or item.get("name")
+                if key and key not in seen:
+                    seen.add(key)
+                    shown.append(item)
+        if shown:
+            translate_skills(shown)
+            log("功能板块：榜上 %d 条简介已送翻译（命中缓存的零成本）" % len(shown))
+
+        log("功能板块：候选 %d 个 —— %s" % (
+            len(candidates),
+            "，".join("%s %d" % (k, v["count"]) for k, v in sections_payload.items())))
+    except Exception as e:
+        log(f"功能板块排行生成失败（本轮面板不显示板块）: {e}")
+
     # 4. 保存结果
     discover_dir = SKILL_ROOT / "discover"
     discover_dir.mkdir(parents=True, exist_ok=True)
@@ -164,7 +207,8 @@ def run_weekly_scan():
         log(f"bridge 密钥轮换失败（旧密钥继续有效）: {e}")
 
     # 5. 生成面板 HTML
-    generate_panel_html(categorized, discover_dir / "latest.html")
+    generate_panel_html(categorized, discover_dir / "latest.html",
+                        sections=sections_payload)
 
     # 6. 发送通知
     total = categorized.get("total", 0)
@@ -258,8 +302,12 @@ def filter_skills(skills: list, installed: dict, latest_shas: dict = None) -> li
     return filtered
 
 
-def generate_panel_html(categorized: dict, output_path: Path):
-    """生成轻量 HTML 面板（fallback 用）"""
+def generate_panel_html(categorized: dict, output_path: Path, sections: dict = None):
+    """生成轻量 HTML 面板（fallback 用）
+
+    `sections` 是功能板块的高星榜（学术/文本/代码），由 run_weekly_scan 算好后传进来。
+    默认 None 时嵌一个空 dict —— 面板会显示"本板块暂无"，而不是显示上一轮的旧榜。
+    """
     # 注：必须用 json_for_script 而不是 json.dumps —— 数据要落进 <script> 块，
     # 上游 description 里的 </script> 会提前闭合脚本块造成 XSS。详见 daemon/safe_embed.py
     from daemon.safe_embed import json_for_script
@@ -276,6 +324,14 @@ def generate_panel_html(categorized: dict, output_path: Path):
     # 不该让"给面板看的字段"漏进通用数据里。
     payload = dict(categorized)
     payload["_installed"] = installed_snapshot(SKILL_ROOT)
+
+    # 功能板块高星榜（学术 / 文本 / 代码）。
+    #
+    # 单独一块数据，**不并进上面的 categories** ——
+    # categories 回答"本周发现了什么"，板块回答"我想找这类工具该看哪些"。
+    # 并进去的话主列表会被几十个不在本期发现范围内的项目淹掉，
+    # 面板上"本期新增 / 更早发现"那两组就失去意义了。
+    payload["_sections"] = sections or {}
 
     # R2/R3：历史各期数据。
     # 本期的存档在上一步（写 weekly-<date>.json）已经落盘，所以这里读得到它，

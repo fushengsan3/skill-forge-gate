@@ -117,6 +117,18 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .btn-primary { background: var(--primary); color: #fff; }
 .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
 .btn-disabled { background: #444; color: #888; cursor: not-allowed; opacity: 0.6; }
+/* 更新 / 重装是一个**真动作**，不是状态标记 —— 用 accent 色和 primary 区分开，
+   免得"可以点"和"已经装了"在同一张卡片上看起来一样。 */
+.btn-update { background: var(--accent); color: #000; font-weight: 600; }
+
+/* 功能板块：一条横带 = 一个板块（标题 + 该板块的高星项目）。
+   视觉上刻意比主网格"轻" —— 它是找东西的入口，不是主体内容。 */
+.section-board { margin: 0 0 20px; }
+.section-board .board-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; }
+.section-board .board-title { font-size: 15px; font-weight: 600; }
+.section-board .board-count { font-size: 12px; color: var(--text-dim); }
+.section-board .board-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.section-board .board-note { font-size: 12px; color: var(--text-dim); padding: 4px 0; }
 .btn-sm { padding: 4px 10px; font-size: 11px; }
 
 .update-info { margin-top: 8px; padding: 8px; background: var(--bg-input); border-radius: var(--radius); font-size: 12px; }
@@ -307,6 +319,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     <input type="text" id="search-input" data-lang-placeholder="search_placeholder">
   </div>
 
+  <!-- 功能板块高星榜（学术 / 文本 / 代码）。
+       放在主网格**上面**：它是"我想找这类工具"的入口，而下面的网格回答的是
+       "本周发现了什么"—— 前者更像首页。由 renderSections() 填充。
+       数据为空时整块不渲染（不是显示一个空壳）。 -->
+  <div id="sections-panel"></div>
+
   <div class="grid" id="skills-grid"></div>
   <div class="empty" id="empty-state">
     <div class="empty-icon">📭</div>
@@ -377,6 +395,11 @@ const PERIODS       = DISCOVER_DATA._periods || [];
 const CATALOG       = DISCOVER_DATA._catalog || {};
 const FIRST_SEEN    = DISCOVER_DATA._first_seen || {};
 const PERIODS_TOTAL = DISCOVER_DATA._periods_total || PERIODS.length;
+// 功能板块高星榜（学术/文本/代码），由 daemon/sections.py 在扫描时算好。
+// 形状：{ "学术相关": {icon, count, items: [完整 skill 记录…]}, … }
+// items 里是**完整记录**，所以能直接交给 skillCard() 渲染 ——
+// 板块里的项目也就能就地安装/更新，而不是只能看。
+const SECTIONS_DATA = DISCOVER_DATA._sections || {};
 
 // 滞后设置（R3）的指针：面板"冻结"在哪一期。
 // 存 localStorage 而不是磁盘 —— 决策记录 §3.3 明确否决了"走 bridge 存文件"，
@@ -396,13 +419,18 @@ const LANG = {
     ext_sources_title: '外部数据源管理', ext_sources_desc: '添加 GitHub 仓库或 JSON API 地址以引入更多 skill 数据',
     ext_sources_file: '这份列表存在浏览器本地；点「保存」会同时写进',
     ext_sources_file2: '，周度扫描时守护进程读的是那个文件。',
-    view_detail: '查看详情', install_btn: '📦 一键安装', update_btn: '🔄 更新', queued: '已加入队列 ✓',
+    view_detail: '查看详情', install_btn: '📦 一键安装', update_btn: '🔄 更新到最新',
+    reinstall_btn: '🔄 重装', queued: '已加入队列 ✓',
+    checking_updates: '正在检查更新…', check_updates: '检查更新',
     install_toast: '已加入安装队列',
     // 原先写「下次启动 Claude Code 时将提示安装」—— 那是假的：没有任何启动钩子
     // 读这个队列。SKILL.md 里那句是给 Claude 的指令，不是可执行的东西。
     install_hint: '在 Claude Code 里说「处理安装队列」即可安装',
     source_jeremylongshore: '社区精选', 'source_github-topic': 'GitHub Topic',
     source_claudskills: 'ClaudSkills', source_external: '外部源', source_search: '搜索',
+    // 功能板块扩搜来的。少了这个键，卡片上的来源徽章会渲染成 "undefined" ——
+    // 因为取值的兜底是 `srcCfg.label`，而 SOURCE_CONFIG 里没有 label 字段。
+    source_section: '板块搜索',
     rating_stars: 'Star', rating_score: '评分', rating_quality: '质量分', rating_match: '匹配',
     translate: '翻译', week_report: '周度发现报告', year: '年', month: '月', day: '日',
     pending_check: '待预检',
@@ -459,11 +487,14 @@ const LANG = {
     ext_sources: '📂 External Sources', filter_sources: '🔍 Source Filter', add: 'Add', save: '💾 Save', fetch_now: '🔄 Fetch',
     ext_sources_title: 'External Data Sources', ext_sources_desc: 'Add GitHub repos or JSON API URLs to import more skills',
     ext_sources_file: 'Config:',
-    view_detail: 'View', install_btn: '📦 Install', update_btn: '🔄 Update', queued: 'Queued ✓',
+    view_detail: 'View', install_btn: '📦 Install', update_btn: '🔄 Update',
+    reinstall_btn: '🔄 Reinstall', queued: 'Queued ✓',
+    checking_updates: 'Checking for updates…', check_updates: 'Check updates',
     install_toast: 'Added to queue',
     install_hint: 'Ask Claude Code to proceed with the install queue',
     source_jeremylongshore: 'Curated', 'source_github-topic': 'GitHub Topic',
     source_claudskills: 'ClaudSkills', source_external: 'External', source_search: 'Search',
+    source_section: 'Section search',
     rating_stars: 'stars', rating_score: 'score', rating_quality: 'quality', rating_match: 'match',
     translate: 'Translate', week_report: 'Weekly Discovery Report', year: '-', month: '-', day: '',
     pending_check: 'Not checked yet',
@@ -526,6 +557,8 @@ function setLang(lang) {
   document.getElementById('btn-zh').classList.toggle('active', lang === 'zh');
   document.getElementById('btn-en').classList.toggle('active', lang === 'en');
   applyLang();
+  // 板块那块的标题/计数是带语言的，切语言要跟着重建
+  renderSections();
   // 期状态条是 JS 拼出来的，扫不到 data-lang，得手动重建
   renderPeriodBar(PERIODS.length ? PERIODS[currentIndex()] : null);
   renderSkills();
@@ -583,7 +616,10 @@ const SOURCE_CONFIG = {
   'github-topic':    { icon: '⭐', color: 'gh', ratingKey: 'rating_stars', ratingFn: function(s) { return (s.stars || 0).toLocaleString(); } },
   'claudskills':     { icon: '📊', color: 'cs', ratingKey: 'rating_quality', ratingFn: function(s) { return (s.qualityScore || s.score || 0).toFixed(0); } },
   'external':        { icon: '📡', color: 'ext', ratingKey: 'rating_score', ratingFn: function(s) { return (s.score || s.stars || 0).toFixed(0); } },
-  'search':          { icon: '🔍', color: 'search', ratingKey: 'rating_match', ratingFn: function(s) { return ((s.match_score || 0) * 100).toFixed(0) + '%'; } }
+  'search':          { icon: '🔍', color: 'search', ratingKey: 'rating_match', ratingFn: function(s) { return ((s.match_score || 0) * 100).toFixed(0) + '%'; } },
+  // 板块扩搜来的项目。rating 用 stars —— 板块榜本身就是按 star 排的，
+  // 这里再显示别的指标只会跟榜单顺序自相矛盾。
+  'section':         { icon: '🧭', color: 'section', ratingKey: 'rating_stars', ratingFn: function(s) { return (s.stars || 0).toLocaleString(); } }
 };
 
 // ============================================================
@@ -1102,6 +1138,59 @@ function fetchExtSources() {
 // ============================================================
 // 渲染
 // ============================================================
+// ============================================================
+// 功能板块高星榜（学术 / 文本 / 代码）
+// ============================================================
+//
+// 数据来自 daemon/sections.py：扫描时**另去搜**的一批项目，算好高星榜后
+// 经 `_sections` 嵌进本页。所以它和下面的主网格是**两套数据**，这是有意的：
+//     主网格 = 本周发现了什么（受三条主源的覆盖范围限制）
+//     板块   = 我想找这类工具，有哪些高星的（因为主动搜过，覆盖更广）
+//
+// 板块为空（没搜到 / 那一轮搜失败）时**整块不渲染**，不留空壳 ——
+// 一个写着"0 个项目"的板块只会让人以为功能坏了。
+//
+// 板块里的条目是**完整记录**，所以直接交给 skillCard() 渲染：
+// 于是它们和主网格一样能就地安装/更新，而不是只能看。
+function renderSections() {
+  var host = document.getElementById('sections-panel');
+  if (!host) return;
+  host.innerHTML = '';
+
+  var names = Object.keys(SECTIONS_DATA || {});
+  if (!names.length) return;
+
+  names.forEach(function(name) {
+    var board = SECTIONS_DATA[name];
+    if (!board || !(board.items || []).length) return;
+
+    var wrap = mkEl('div', 'section-board');
+    var head = mkEl('div', 'board-head');
+    head.appendChild(mkEl('span', 'board-title', (board.icon || '') + ' ' + name));
+    // count 是该板块的**总数**，items 只是前 N 条。两个数都给出来，
+    // 才不会被读成"这个板块一共就这么几个"。
+    head.appendChild(mkEl('span', 'board-count', currentLang === 'zh'
+      ? '共 ' + board.count + ' 个 · 按 Star 列前 ' + board.items.length + ' 个'
+      : board.count + ' total · top ' + board.items.length + ' by stars'));
+    wrap.appendChild(head);
+
+    var row = mkEl('div', 'board-row');
+    board.items.forEach(function(it) {
+      // 这些记录来自 GitHub 搜索，字段比发现流水线的少。
+      // 就地补上 skillCard 需要的那个：不补的话卡片上会渲染出 "🏷 undefined"。
+      // 板块名本身就是最合适的分类标签 —— 比编一个假类目诚实。
+      var s = {};
+      for (var k in it) {
+        if (Object.prototype.hasOwnProperty.call(it, k)) s[k] = it[k];
+      }
+      s._category = name;
+      row.appendChild(skillCard(s));
+    });
+    wrap.appendChild(row);
+    host.appendChild(wrap);
+  });
+}
+
 function renderSkills() {
   var catFilter = document.getElementById('filter-category').value;
   var statusFilter = document.getElementById('filter-status').value;
@@ -1227,10 +1316,29 @@ function skillCard(s) {
   // 同一个文件里早有先例：队列项也曾被标 verified，后来改成 pending ——
   // 理由就是"排队的时候什么都还没检查过"。
 
-  var btnText = isInstalled ? '✅ ' + (currentLang === 'zh' ? '已安装' : 'Installed')
-    : inQueue ? t('queued')
-    : (isUpdate ? t('update_btn') : t('install_btn'));
-  var btnClass = (isInstalled || inQueue) ? 'btn btn-disabled' : 'btn btn-primary';
+  // 按钮四态。**这里的顺序就是语义**，别随手调：
+  //   inQueue     已排队的不能再排一次 —— 最优先
+  //   isUpdate    "有更新"按定义**必然是已安装的**，所以它必须排在 isInstalled
+  //               **前面**。原先 isInstalled 写在最前，把 isUpdate 整条短路掉了：
+  //               一张"有更新"的卡片渲染出来是「✅ 已安装」，而且那个灰样式
+  //               并不 disable 按钮，点了只是把同一个 skill 再装一遍。
+  //               `t('update_btn')` 那句基本不可达。
+  //   isInstalled 已装且无更新 → 重装（也是可点的动作）
+  //   否则        未装 → 安装
+  var btnAction = inQueue ? 'queued'
+    : isUpdate ? 'update'
+    : isInstalled ? 'reinstall'
+    : 'install';
+
+  var btnText = btnAction === 'queued' ? t('queued')
+    : btnAction === 'update' ? t('update_btn')
+    : btnAction === 'reinstall' ? t('reinstall_btn')
+    : t('install_btn');
+
+  // 只有「已排队」是禁用态 —— 它不是一个动作，是个状态。
+  // 更新/重装都是真动作，必须是可点的（这正是这次要修的那个"只有标注"）。
+  var btnClass = btnAction === 'queued' ? 'btn btn-disabled'
+    : (btnAction === 'install' ? 'btn btn-primary' : 'btn btn-update');
 
   var card = mkEl('div', 'card source-' + s.source);
 
@@ -1328,9 +1436,12 @@ function skillCard(s) {
     actions.appendChild(a);
   }
   var btn = mkEl('button', btnClass, btnText);
-  if (inQueue) btn.disabled = true;
+  if (btnAction === 'queued') btn.disabled = true;
   // R8-4：不用内联 onclick，直接挂监听器 —— 彻底消除 JS 字符串上下文
-  btn.addEventListener('click', function() { queueInstall(name, link); });
+  btn.addEventListener('click', function() {
+    if (btnAction === 'update' || btnAction === 'reinstall') updateSkill(name, btn);
+    else queueInstall(name, link);
+  });
   actions.appendChild(btn);
   card.appendChild(actions);
 
@@ -1442,6 +1553,148 @@ function triggerInstall() {
     .catch(function(e) {
       alert((currentLang === 'zh' ? '安装请求失败，bridge 可能未运行。\n请等待 daemon 扫描完成后重试。' : 'Install request failed. Bridge may not be running.\nWait for daemon scan to complete and retry.'));
     });
+}
+
+// ============================================================
+// 更新 / 重装一个已安装的 skill
+// ============================================================
+//
+// 为什么不复用安装队列：队列那条路是**无人值守**的（POST /install →
+// process_install_queue），而更新是你盯着点的单次操作 —— 你要立刻看到
+// "成没成、预检过了没有"。队列是异步的，点了只能自己回去翻。
+//
+// 为什么只传 name、不传 URL：URL 由 bridge 从 sources.json 里取。
+// 让前端传 URL 等于给面板开一个"命令常驻 bridge 装任意仓库"的口子。
+//
+// `btn` 是为了就地显示进度 + 防连点：更新要走一遍 clone 和 L1–L5，
+// 不是瞬间的事；没有反馈的话用户会以为没点上，然后连点。
+function updateSkill(name, btn) {
+  var original = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ ' + t('checking_updates'); }
+  function restore() {
+    if (btn) { btn.disabled = false; btn.textContent = original; }
+  }
+
+  bridgeFetch('update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name })
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      restore();
+      if (!res || !res.ok) {
+        alert((currentLang === 'zh' ? '更新失败：' : 'Update failed: ')
+              + ((res && (res.error || res.message)) || 'unknown'));
+        return;
+      }
+      var v = res.verify || {};
+      var msg = (currentLang === 'zh' ? '更新完成：' : 'Updated: ') + name
+              + (res.sha ? '  (' + res.sha + ')' : '');
+      if (v.summary) msg += '\n' + v.summary;
+      // 与安装那条路保持一致：把 SKIPPED 的层单独点出来。
+      // 汇总里"跳过"和"通过"挨着长，这正是"以为验过了"的来源。
+      var skipped = (v.layers || []).filter(function(L) {
+        return L && L.verdict === 'SKIPPED';
+      }).map(function(L) { return L.name; });
+      if (skipped.length) {
+        msg += '\n⚠ ' + (currentLang === 'zh'
+          ? '未跑：' + skipped.join('、') + ' —— 跳过不是通过'
+          : 'not run: ' + skipped.join(', ') + ' — skipped is not passed');
+      }
+      if ((res.extra_skills || []).length) {
+        msg += '\n' + (currentLang === 'zh'
+          ? '附带装了 ' + res.extra_skills.length + ' 个子 skill'
+          : res.extra_skills.length + ' sub-skill(s)');
+      }
+      showToast('🔄 ' + (currentLang === 'zh' ? '已更新 ' + name : 'Updated ' + name));
+      alert(msg);
+
+      // 就地清掉这一条的"有更新"状态。不清的话卡片会一直挂着
+      // 「🔄 更新到最新」，直到下一次周度扫描把 status 重算一遍 ——
+      // 而用户刚刚才点过更新，那个徽章就是在骗人。
+      allSkills.forEach(function(s) {
+        if (s.name === name) {
+          s.status = null;
+          if (res.sha) s.installed_sha = res.sha;
+        }
+      });
+      // 更新改了 sources.json，也改了这条的 SHA：名单要重取。
+      // renderSkills() 再显式画一次 —— 不依赖 loadInstalled 内部的渲染时机。
+      loadInstalled();
+      renderSkills();
+    })
+    .catch(function() {
+      restore();
+      alert(currentLang === 'zh'
+        ? '更新请求失败，bridge 可能未运行。'
+        : 'Update request failed. Bridge may not be running.');
+    });
+}
+
+// ============================================================
+// 检查更新（打开面板时自动跑一次，silent；也可手动点）
+// ============================================================
+//
+// 数据来自 bridge 的 GET /updates：它逐个查已装 skill 的上游 HEAD。
+// bridge 侧有 15 分钟节流 —— 未鉴权的 GitHub 只有 60 次/小时，
+// 不节流的话开几次面板就能把配额烧光，之后连每周的发现扫描都会 403。
+//
+// 拿到结果只做一件事：把 `status` / `latest_sha` 就地对到 allSkills 上。
+// **不改别的** —— "本周有哪些新东西"由周度扫描决定，这里只回答
+// "我装的那几个有没有新提交"。
+function checkUpdates(silent) {
+  if (!bridgeAvailable) return;
+  bridgeFetch('updates')
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (!res || !res.ok) {
+        if (!silent) {
+          showToast('⚠ ' + (currentLang === 'zh' ? '检查更新失败：' : 'Check failed: ')
+                    + ((res && res.error) || '?'));
+        }
+        return;
+      }
+      var byName = {};
+      (res.updates || []).forEach(function(u) { byName[u.name] = u; });
+      var marked = 0;
+      allSkills.forEach(function(s) {
+        var u = byName[s.name];
+        if (!u) return;
+        s.status = 'update_available';
+        s.installed_sha = u.installed_sha;
+        s.latest_sha = u.latest_sha;
+        marked++;
+      });
+      renderSkills();
+
+      if (silent) {
+        if (marked) {
+          showToast('🔄 ' + (currentLang === 'zh'
+            ? marked + ' 个 skill 有更新' : marked + ' update(s)'));
+        }
+        return;
+      }
+      // ⚠️ partial = 有的**没查成**（多半是限流或断网）。
+      // 那和"确认大家都是最新"是两件完全不同的事，必须分开说 ——
+      // 把"没查到"显示成"没有更新"正是这个仓库反复在修的那类毛病。
+      var msg = (currentLang === 'zh'
+        ? '已查 ' + res.checked + '/' + res.targets + ' 个'
+        : 'checked ' + res.checked + '/' + res.targets)
+        + '，' + res.count + (currentLang === 'zh' ? ' 个有更新' : ' with updates');
+      if (res.partial) {
+        msg += '\n⚠ ' + (currentLang === 'zh'
+          ? '有 ' + (res.targets - res.checked) + ' 个没查到（多半是 GitHub 限流）—— 那不是"已是最新"'
+          : (res.targets - res.checked) + ' could not be checked (likely rate limit) — that is not "up to date"');
+      }
+      if (res.cached) {
+        msg += '\n' + (currentLang === 'zh'
+          ? '（' + Math.round((res.age_sec || 0) / 60) + ' 分钟内的缓存）'
+          : '(cached)');
+      }
+      alert(msg);
+    })
+    .catch(function() { /* bridge 不在线就静默跳过 */ });
 }
 
 function updateQueueBadge() {
@@ -1794,6 +2047,7 @@ bindStaticHandlers();
 loadFrozen();     // R3：先读回冻结点，再决定渲染哪一期
 flattenData();
 applyLang();
+renderSections();   // 板块高星榜（学术/文本/代码）—— 与主网格是两套数据，见该函数说明
 renderSkills();
 updateQueueBadge();
 initInstalled();
@@ -1811,6 +2065,11 @@ bridgeFetch('', { signal: ctrl.signal })
     });
     bridgeAvailable = true;
     updateQueueBadge(); renderSkills();
+    // 自动检查更新：silent 模式 —— 结果直接反映到卡片的徽章和按钮上，
+    // 不弹对话框（打开面板就被弹一个框很烦）。
+    // 放在这里而不是 initInstalled() 里，是因为 bridgeAvailable 要到这一行
+    // 才为 true —— 放在那之前会因为"bridge 不在线"被静默跳过，永远不跑。
+    checkUpdates(true);
   })
   .catch(function() {
     installQueue = JSON.parse(localStorage.getItem('skill-forge-queue') || '[]');

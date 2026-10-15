@@ -381,10 +381,17 @@ def fetch_all_sources(search_query: str = None, top: int = None, include_externa
     return deduped
 
 
-def search_skills(query: str, top: int = 10) -> list:
-    """关键词搜索 skill（用于用户需求快速通道）"""
+def search_skills(query: str, top: int = 10, page: int = 1) -> list:
+    """关键词搜索 skill（用于用户需求快速通道 + 板块扩搜）。
+
+    `page` 是 2026-10-15 加的：板块扩搜要拿到"够多的候选"才排得出榜，
+    而 GitHub 搜索单次最多 100 条、且**只能靠翻页拿到更多**。
+    默认 1，老调用方不受影响。
+    """
     import urllib.parse
-    url = f"https://api.github.com/search/repositories?q={urllib.parse.quote(query)}+topic:claude-code-skill&sort=stars&order=desc&per_page={top}"
+    url = (f"https://api.github.com/search/repositories"
+           f"?q={urllib.parse.quote(query)}+topic:claude-code-skill"
+           f"&sort=stars&order=desc&per_page={top}&page={page}")
     result = api_get(url)
 
     if not result["ok"]:
@@ -402,6 +409,65 @@ def search_skills(query: str, top: int = 10) -> list:
             "match_score": 1.0,
         })
     return skills
+
+
+def fetch_section_candidates(per_query: int = 30, pages: int = 1,
+                             section_names=None) -> list:
+    """按**功能板块**的关键词去 GitHub 搜更多项目，带翻页。
+
+    ## 为什么不能只靠现有三条主源（"扩大搜索范围"那句话的实际含义）
+
+    `fetch_all_sources` 的三条主源拉的是"别人整理好的 Claude Code 插件清单"。
+    学术方向的项目在那种清单里天然就少 —— 它们大多是**通用的研究工具**
+    （论文检索、引用管理、文献综述），本来就不会被打上 Claude Code 插件标签。
+    所以板块排行不能只在已有集合里挑，必须主动按关键词去搜。
+
+    ## 配额 —— 这是本函数唯一需要小心的地方
+
+        请求数 = 板块数 × 每板块关键词数 × pages
+
+    默认 3 × 5 × 1 = **15 次**。GitHub **未鉴权只有 60 次/小时**，
+    而一轮扫描还要花掉主源和 `fetch_latest_shas` 的那些，15 次已经不小。
+    所以 `pages` 默认 1；想更全再调大，但先确认 GitHub Token 已配
+    （配了是 5000 次/小时）。
+
+    ## 单个关键词失败不抛
+
+    限流/断网时 `search_skills` 返回空列表，这里就当那个关键词没结果。
+    一个板块搜不到不该让整轮扫描挂掉 —— 同 translate_ai 的"失败静默退回"。
+    """
+    from daemon.sections import SECTIONS
+
+    names = list(section_names) if section_names else list(SECTIONS.keys())
+    collected = []
+    for name in names:
+        cfg = SECTIONS.get(name)
+        if not cfg:
+            continue
+        for q in cfg["search_queries"]:
+            for p in range(1, max(1, pages) + 1):
+                try:
+                    hits = search_skills(q, top=per_query, page=p)
+                except Exception:
+                    hits = []
+                for h in hits:
+                    h["source"] = "section"
+                    h["source_label"] = name     # 面板据此显示"这条是从哪个板块搜来的"
+                    h["_section_query"] = q
+                    collected.append(h)
+                # 这一页没装满 = 没有下一页了，别再白花一次请求
+                if len(hits) < per_query:
+                    break
+
+    # 按 URL 去重：同一个项目会被多个关键词搜到（"paper" 和 "arxiv" 尤其重合）
+    seen = set()
+    deduped = []
+    for s in collected:
+        key = s.get("url") or s.get("full_name") or s.get("name")
+        if key and key not in seen:
+            seen.add(key)
+            deduped.append(s)
+    return deduped
 
 
 if __name__ == "__main__":

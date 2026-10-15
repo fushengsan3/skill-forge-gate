@@ -5,6 +5,7 @@
 """
 import json
 import sys
+import threading
 import time
 from datetime import datetime
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -15,6 +16,18 @@ SKILLS_DIR = Path.home() / ".claude" / "skills"  # 所有 skill 的安装根目�
 QUEUE_FILE = SKILL_ROOT / "templates" / "install-queue.json"
 EXT_SOURCES_FILE = SKILL_ROOT / "templates" / "external_sources.json"
 PORT = 18970
+
+# ---- 「检查更新」的节流 ----
+#
+# 面板每次打开都会 GET 一次 /updates，而 GitHub **未鉴权时只有 60 次/小时**，
+# 已装 skill 每多一个就多一次请求。连着开几次面板就能把配额烧光 ——
+# 之后连每周的发现扫描都会开始 403，而那才是这个工具的主线功能。
+#
+# 所以设一个窗口：窗口内直接回上次的结果，并**如实标注 cached=true**、
+# 带上它有多旧。不把它伪装成"刚查过的" —— 那正是这个仓库反复在修的那类毛病。
+_CHECK_UPDATES_MIN_INTERVAL = 15 * 60          # 秒
+_check_updates_lock = threading.Lock()
+_check_updates_cache = {"at": 0.0, "result": None}
 
 # 让 bridge 能独立启动（R4-b 会把它拆成常驻服务），不依赖调用方先设好 sys.path
 sys.path.insert(0, str(SKILL_ROOT))
@@ -65,6 +78,8 @@ class QueueHandler(BaseHTTPRequestHandler):
             self._handle_get_models()
         elif path == "/translate-config":
             self._handle_get_translate_config()
+        elif path == "/updates":
+            self._handle_check_updates()
         else:
             self._handle_get_queue()
 
@@ -104,6 +119,8 @@ class QueueHandler(BaseHTTPRequestHandler):
             self._handle_install()
         elif self.path.rstrip("/") == "/uninstall":
             self._handle_uninstall(data)
+        elif self.path.rstrip("/") == "/update":
+            self._handle_update(data)
         elif self.path.rstrip("/") == "/credentials/request":
             self._handle_request_credential(data)
         elif self.path.rstrip("/") == "/credentials/delete":
@@ -321,6 +338,149 @@ class QueueHandler(BaseHTTPRequestHandler):
             self._json_reply({"ok": True, "name": name})
         except Exception as e:
             self._json_reply({"ok": False, "error": str(e)})
+
+    # ---- Update（更新一个已装的 skill）----
+
+    def _handle_update(self, data):
+        """把一个**已安装**的 skill 更新到上游最新。
+
+        更新 = 用同一条安装链路重装一遍：`install_skill` 会重新 clone、
+        重跑 L1–L5 预检、替换目录、把新 SHA 写回 sources.json。
+        这里刻意**不另写一套更新逻辑** —— 安装和更新必须是同一条路，
+        否则"更新"就成了绕过预检的后门（安装有预检、更新没有）。
+
+        URL **只从 sources.json 取，不接受请求体里的 URL**：
+        bridge 是常驻进程，让前端指定 URL 等于开一个"任何能过 Origin 校验的
+        页面都能命令它去装任意仓库"的口子。已装的记录才有确定的来源。
+        """
+        name = (data or {}).get("name", "")
+        if not name:
+            self._json_reply({"ok": False, "error": "name is required"})
+            return
+
+        # 先验名再拼路径 —— 顺序反了就等于没验（同 _handle_uninstall）
+        try:
+            skill_dir = safe_paths.resolve_within(SKILLS_DIR, name)
+        except safe_paths.UnsafeName as e:
+            self._json_reply({"ok": False, "error": "unsafe-name",
+                              "message": f"拒绝更新：{e}"})
+            return
+
+        # skill-forge 自己是合法名字，但更新它要走 self-update.sh：
+        # 那条路会先把数据搬出去、再替换、失败能回滚；
+        # 拿它当普通 skill 重装会把 discover/ 和 .bridge-key 一起弄没。
+        if safe_paths.is_forge_dir(skill_dir, SKILLS_DIR):
+            self._json_reply({
+                "ok": False, "error": "self-update-refused",
+                "message": "拒绝在面板里更新 skill-forge 本体 —— 请用 scripts/self-update.sh，"
+                           "它会先保住数据再替换。",
+            })
+            return
+
+        sources_file = SKILL_ROOT / "sources.json"
+        try:
+            sources = json.loads(sources_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            self._json_reply({"ok": False, "error": f"sources.json 读不出来：{e}"})
+            return
+
+        info = sources.get(name)
+        if not isinstance(info, dict):
+            self._json_reply({
+                "ok": False, "error": "not-installed",
+                "message": f"{name} 不在 sources.json 里 —— 只能更新装过的 skill，"
+                           f"没装过的请走安装。",
+            })
+            return
+        if info.get("self"):
+            self._json_reply({"ok": False, "error": "self-update-refused",
+                              "message": "skill-forge 自己走 scripts/self-update.sh"})
+            return
+
+        url = (info.get("url") or "").strip()
+        if not url:
+            self._json_reply({"ok": False, "error": "no-url",
+                              "message": f"sources.json 里 {name} 没有 url，无法知道从哪更新"})
+            return
+
+        try:
+            from daemon.installer import install_skill
+            result = install_skill(name, url, info.get("full_name", ""))
+        except Exception as e:
+            self._json_reply({"ok": False,
+                              "error": f"更新时异常：{type(e).__name__}: {e}"})
+            return
+
+        payload = dict(result)
+        payload["name"] = name
+        payload["ok"] = bool(result.get("ok"))
+        self._json_reply(payload)
+
+    # ---- 检查更新（面板打开时自动问一次）----
+
+    def _handle_check_updates(self):
+        """查所有已装 skill 的上游 HEAD，列出哪些有更新。
+
+        节流见文件顶部的 _CHECK_UPDATES_MIN_INTERVAL 说明 ——
+        没有节流的话，光开几次面板就能把未鉴权的 60 次/小时配额烧光。
+        窗口内命中缓存时如实回 `cached: true` 与 `age_sec`。
+        """
+        now = time.time()
+        with _check_updates_lock:
+            last = _check_updates_cache.get("at") or 0.0
+            if last and (now - last) < _CHECK_UPDATES_MIN_INTERVAL:
+                cached = dict(_check_updates_cache.get("result") or {})
+                cached["cached"] = True
+                cached["age_sec"] = int(now - last)
+                self._json_reply(cached)
+                return
+            # 拿住锁做网络请求：面板的刷新逻辑偶尔会连发两次，
+            # 不锁的话两次会各自查一轮，白烧一倍配额。
+            result = self._compute_updates()
+            _check_updates_cache["at"] = time.time()
+            _check_updates_cache["result"] = result
+        payload = dict(result)
+        payload["cached"] = False
+        self._json_reply(payload)
+
+    def _compute_updates(self):
+        sources_file = SKILL_ROOT / "sources.json"
+        try:
+            sources = json.loads(sources_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            return {"ok": False, "error": f"sources.json 读不出来：{e}"}
+
+        # 只查非 self 的（fetch_latest_shas 内部也会跳过 self）
+        targets = [n for n, i in sources.items()
+                   if isinstance(i, dict) and not i.get("self")]
+        try:
+            from daemon.fetcher import fetch_latest_shas
+            latest = fetch_latest_shas(sources)
+        except Exception as e:
+            return {"ok": False, "error": f"查询失败：{type(e).__name__}: {e}"}
+
+        updates = []
+        for name in targets:
+            info = sources.get(name) or {}
+            cur = (info.get("installed_sha") or "").strip()
+            new = (latest.get(name) or "").strip()
+            if new and cur and new != cur:
+                updates.append({
+                    "name": name,
+                    "installed_sha": cur[:8],
+                    "latest_sha": new[:8],
+                })
+
+        # ⚠️ `checked < targets` 意味着**有的没查成**（多半是限流或断网），
+        # 那和"确认大家都已是最新"是两件事。分开报，让面板能如实说。
+        return {
+            "ok": True,
+            "checked": len(latest),
+            "targets": len(targets),
+            "partial": len(latest) < len(targets),
+            "count": len(updates),
+            "updates": updates,
+        }
 
     # ---- Helpers ----
 

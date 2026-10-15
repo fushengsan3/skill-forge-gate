@@ -943,6 +943,10 @@ class TestWatchdog(unittest.TestCase):
 
     # ---- try_start 测试 ----
 
+    # 板块扩搜（2026-10-15 加）：run_weekly_scan 里多了一步"按功能板块去 GitHub
+    # 搜更多项目"。它**会真发网络请求**（默认 15 次），所以必须一起 patch ——
+    # 否则这个测试会一边跑一边打 GitHub，离线时直接失败。
+    @patch("daemon.fetcher.fetch_section_candidates")
     @patch("daemon.watchdog.generate_panel_html")
     @patch("daemon.notifier.send_notification")
     @patch("daemon.watchdog.load_installed_skills")
@@ -951,10 +955,12 @@ class TestWatchdog(unittest.TestCase):
     @patch("daemon.fetcher.fetch_all_sources")
     @patch("daemon.watchdog.check_connectivity")
     def test_try_start_success_flow(self, mock_conn, mock_fetch, mock_classify,
-                                     mock_filter, mock_load, mock_notify, mock_panel):
+                                     mock_filter, mock_load, mock_notify, mock_panel,
+                                     mock_section):
         """验证 try_start 成功流程"""
         from daemon.watchdog import try_start
         mock_conn.return_value = True
+        mock_section.return_value = []
         mock_fetch.return_value = [{"name": "test-skill", "stars": 100}]
         mock_load.return_value = {}
         mock_filter.return_value = [{"name": "test-skill", "stars": 100, "status": "new"}]
@@ -967,6 +973,44 @@ class TestWatchdog(unittest.TestCase):
         self.assertTrue(result)
         mock_notify.assert_called_once()
         mock_panel.assert_called_once()
+
+    # 功能板块榜上的简介**也要过翻译**（2026-10-15 补）。
+    #
+    # 原先是只把 categorized["categories"] 送进 translate_skills，板块候选那条路
+    # 完全没走 —— 于是中文界面上那三块显示的是一整片英文，
+    # 而旁边的网格是中文，看起来像"翻译坏了"。
+    @patch("daemon.watchdog.generate_panel_html")
+    @patch("daemon.notifier.send_notification")
+    @patch("daemon.watchdog.load_installed_skills")
+    @patch("daemon.watchdog.filter_skills")
+    @patch("daemon.classifier.classify_and_sort")
+    @patch("daemon.translate.translate_skills")
+    @patch("daemon.fetcher.fetch_section_candidates")
+    @patch("daemon.fetcher.fetch_all_sources")
+    @patch("daemon.watchdog.check_connectivity")
+    def test_section_board_items_are_translated(self, mock_conn, mock_fetch, mock_section,
+                                                 mock_translate, mock_classify, mock_filter,
+                                                 mock_load, mock_notify, mock_panel):
+        """板块榜上的条目必须被送进 translate_skills"""
+        from daemon.watchdog import try_start
+        mock_conn.return_value = True
+        mock_fetch.return_value = []
+        mock_load.return_value = {}
+        mock_filter.return_value = []
+        mock_classify.return_value = {"total": 0, "new_count": 0, "update_count": 0,
+                                      "categories": {}}
+        mock_section.return_value = [
+            {"name": "paper-search-pro", "description": "Academic literature discovery",
+             "stars": 900, "url": "https://github.com/b/paper-search-pro", "source": "section"},
+        ]
+
+        try_start()
+
+        batches = [c.args[0] for c in mock_translate.call_args_list if c.args]
+        flat = [it for batch in batches for it in batch]
+        names = [it.get("name") for it in flat]
+        self.assertIn("paper-search-pro", names,
+                      f"板块榜上的条目没被送进 translate_skills，实际送到的是：{names}")
 
     @patch("daemon.watchdog.check_connectivity")
     def test_try_start_no_connectivity(self, mock_conn):
