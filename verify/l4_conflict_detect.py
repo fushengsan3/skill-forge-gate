@@ -49,8 +49,7 @@ SYSTEM_PATHS = [
     "/sys", "/proc", "/dev",
 ]
 
-# 网络代理
-PROXY = "http://<你的代理地址>"
+# 网络代理：不再硬编码，统一走 daemon/net.py 解析
 
 
 def is_system_path(path: str) -> bool:
@@ -239,8 +238,8 @@ def claude_deep_analysis(report: dict) -> dict:
 
     # 宿主进程发请求，**要**走宿主代理。跟容器里正相反 —— 那边不能带，
     # 带了等于把宿主的内网地址带进沙箱。
-    proxy_handler = urllib.request.ProxyHandler({"https": PROXY, "http": PROXY})
-    opener = urllib.request.build_opener(proxy_handler)
+    from daemon import net
+    opener = net.build_opener()
     req = urllib.request.Request(
         llm_auth.base_url() + "/v1/messages",      # 不再写死 api.anthropic.com
         data=body,

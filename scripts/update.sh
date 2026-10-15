@@ -3,8 +3,11 @@
 # 用法: update.sh <skill_name> [--dry-run]
 set -euo pipefail
 
-export https_proxy="http://<你的代理地址>"
-export http_proxy="http://<你的代理地址>"
+# 代理不再写死（见 安装部署说明.md §3）：设了 SKILL_FORGE_PROXY 才走代理。
+if [ -n "${SKILL_FORGE_PROXY:-}" ]; then
+    export https_proxy="$SKILL_FORGE_PROXY"
+    export http_proxy="$SKILL_FORGE_PROXY"
+fi
 
 SKILLS_ROOT="${SKILLS_ROOT:-$HOME/.claude/skills}"
 SKILL_FORGE="$SKILLS_ROOT/skill-forge"

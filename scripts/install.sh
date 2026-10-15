@@ -18,8 +18,13 @@
 #    名字会被拼进路径再 mv。现在走 daemon/safe_paths.py 同一个校验。
 set -euo pipefail
 
-export https_proxy="http://<你的代理地址>"
-export http_proxy="http://<你的代理地址>"
+# 代理**不再写死**（2026-10-15）：以前这里硬编码了作者本机的地址，
+# 别人 clone 下来每个请求都会去撞一个不存在的端口。
+# 要用代理就自己 export SKILL_FORGE_PROXY；没配就是直连。见 安装部署说明.md §3。
+if [ -n "${SKILL_FORGE_PROXY:-}" ]; then
+    export https_proxy="$SKILL_FORGE_PROXY"
+    export http_proxy="$SKILL_FORGE_PROXY"
+fi
 
 SKILLS_ROOT="${SKILLS_ROOT:-$HOME/.claude/skills}"
 SKILL_FORGE="$SKILLS_ROOT/skill-forge"

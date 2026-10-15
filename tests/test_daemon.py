@@ -81,9 +81,16 @@ class TestFetcher(unittest.TestCase):
     """数据源拉取器测试"""
 
     def setUp(self):
-        """每个测试前设置代理环境变量"""
-        os.environ["https_proxy"] = "http://<你的代理地址>"
-        os.environ["http_proxy"] = "http://<你的代理地址>"
+        """清掉代理解析缓存，让每个用例按当前配置重新解析。
+
+        ⚠️ 这里以前把一个**作者本机的代理端口**写死在环境变量里。
+        别人机器上没有那个端口，于是这些**连通性测试**在他们那里必然全红，
+        而且看起来像"代码坏了"。现在不设任何地址：要用代理的人自己配
+        （daemon/net.py 的三种来源，见其顶部），没配就直连 ——
+        能直连 GitHub 的机器上，这些测试照常通过。
+        """
+        from daemon import net
+        net.reset_cache()
 
     # ---- 连通性测试 (需要代理) ----
 
@@ -129,10 +136,8 @@ class TestFetcher(unittest.TestCase):
     def test_claudskills_connectivity(self):
         """验证 ClaudSkills.com 数据源连通性"""
         import urllib.request
-        from daemon.fetcher import set_proxy, PROXY
-        set_proxy()
-        proxy_handler = urllib.request.ProxyHandler({"https": PROXY, "http": PROXY})
-        opener = urllib.request.build_opener(proxy_handler)
+        from daemon import net
+        opener = net.build_opener()
         url = "https://claudskills.com/data/skills.json"
         req = urllib.request.Request(url, headers={"User-Agent": "skill-forge/1.0"})
         try:

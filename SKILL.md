@@ -15,7 +15,9 @@ Skills 根目录：`~/.claude/skills/`
 - **两条安装路径**：Claude Code 这条路是**有人的**（你读报告、能问、能解释）；面板那条路是**无人值守的**（`POST /install` → `daemon/precheck.py`）。⚠️ **它只挡 `REJECT`** —— `REVIEW` 会**照常装上**，只是 `sources.json` 里记 `trust_level: partial`、报告里写明原因。**`REVIEW` 不等于被拦**：L3 命中可疑模式、或 L4 报冲突的 skill，面板无人值守时**会被真的装进来**，只多一个 `partial` 标记。别把"标了 partial"读成"没装"
 - **所有脚本从 skill-forge 目录执行**：`cd ~/.claude/skills/skill-forge && python verify/...`
 - **输出均为 JSON**：解析 exit code 判断成败，解析 stdout 获取详情
-- **网络通过可乐云代理**：`export https_proxy=http://<你的代理地址>`
+- **网络**：默认**直连**，不预设代理。要用代理时三种给法（优先级从高到低）：
+  `SKILL_FORGE_PROXY` 环境变量 → `templates/network-config.json` 的 `"proxy"`
+  → 标准的 `https_proxy`/`http_proxy`。想知道当前生效的是哪个：`python -m daemon.net`
 
 ---
 
@@ -297,5 +299,7 @@ bash scripts/inventory.sh
 
 ## 网络
 
-所有外网请求通过可乐云代理：`http://<你的代理地址>`
+默认直连；配了代理才走代理。出口只有一个真源：`daemon/net.py`
+（解析顺序 SKILL_FORGE_PROXY → `templates/network-config.json` → 标准环境变量 → 直连）。
+`python -m daemon.net` 打印当前生效的设置。
 Python 脚本已内置代理，Bash 脚本自动 export。

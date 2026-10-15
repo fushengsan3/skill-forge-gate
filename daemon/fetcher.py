@@ -10,7 +10,12 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-PROXY = "http://<你的代理地址>"
+# ⚠️ 代理地址**不再在这里硬编码**（2026-10-15）。
+# 以前这里是一个写死的模块级常量，值就是作者本机的代理端口（地址见 git 历史，
+# 本文里刻意不再抄一遍 —— 抄一遍等于又把它发出去一次）。
+# 别人 clone 下来每个请求都会去撞一个不存在的端口，报错还长得像"网络不通"。
+# 现在出口只有一个真源：daemon/net.py。解析顺序（环境变量 → 配置文件 → 直连）
+# 见那个文件顶部。
 SKILL_ROOT = Path.home() / ".claude" / "skills" / "skill-forge"
 LOG_FILE = SKILL_ROOT / "daemon" / "watchdog.log"
 
@@ -33,8 +38,24 @@ def _redact_url(url: str) -> str:
 
 
 def set_proxy():
-    os.environ["https_proxy"] = PROXY
-    os.environ["http_proxy"] = PROXY
+    """把**解析出来的**代理写进本进程的环境变量。
+
+    ⚠️ 语义在 2026-10-15 变了：以前这里写的是硬编码地址（无条件覆盖），
+    现在写的是 daemon/net.py 解析出来的那个 —— 没人配代理时就什么都不设，
+    让 urllib 走它的默认行为。
+
+    留着这个函数是因为**环境变量还是有人认**：子进程，以及少数不看
+    ProxyHandler 的三方库。真正的请求路径请用 net.build_opener()。
+    """
+    from daemon import net
+    proxy = net.resolve_proxy()
+    if proxy:
+        os.environ["https_proxy"] = proxy
+        os.environ["http_proxy"] = proxy
+    no_proxy = net.resolve_no_proxy()
+    if no_proxy:
+        os.environ["no_proxy"] = no_proxy
+        os.environ["NO_PROXY"] = no_proxy
 
 
 def github_headers() -> dict:
@@ -71,9 +92,9 @@ def github_headers() -> dict:
 
 
 def api_get(url: str) -> dict:
+    from daemon import net
     set_proxy()
-    proxy_handler = urllib.request.ProxyHandler({"https": PROXY, "http": PROXY})
-    opener = urllib.request.build_opener(proxy_handler)
+    opener = net.build_opener()
     req = urllib.request.Request(url, headers=github_headers())
     try:
         with opener.open(req, timeout=30) as resp:
@@ -143,9 +164,9 @@ def fetch_claudskills() -> list:
     """从 ClaudSkills.com 拉取公开数据集"""
     url = "https://claudskills.com/data/skills.json"
     try:
+        from daemon import net
         set_proxy()
-        proxy_handler = urllib.request.ProxyHandler({"https": PROXY, "http": PROXY})
-        opener = urllib.request.build_opener(proxy_handler)
+        opener = net.build_opener()
         req = urllib.request.Request(url, headers={"User-Agent": "skill-forge/1.0"})
         with opener.open(req, timeout=30) as resp:
             data = json.loads(resp.read().decode())

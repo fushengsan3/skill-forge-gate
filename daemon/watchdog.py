@@ -22,10 +22,11 @@ MAX_RETRIES = 3
 RETRY_INTERVAL = 30 * 60  # 30 分钟
 SNOOZE_INTERVAL = 3600  # 1 小时
 
-# 可乐云代理
-PROXY = "http://<你的代理地址>"
-os.environ["https_proxy"] = PROXY
-os.environ["http_proxy"] = PROXY
+# ⚠️ 这里**曾经在 import 阶段**就把 os.environ 的代理改掉，而且写死了地址。
+# 副作用发生在 import 时是最难查的一类：任何人（包括测试）import 一下这个模块，
+# 自己进程的代理设置就被改了，而且改成了一个只在本机存在的端口。
+# 现在代理统一由 daemon/net.py 解析，并且**只在真要发请求时**才用 ——
+# 不再有任何 import 期的副作用。
 
 # 添加模块路径
 sys.path.insert(0, str(SKILL_ROOT))
@@ -68,8 +69,8 @@ def check_connectivity() -> bool:
     import urllib.request
     import urllib.error
     try:
-        proxy_handler = urllib.request.ProxyHandler({"https": PROXY, "http": PROXY})
-        opener = urllib.request.build_opener(proxy_handler)
+        from daemon import net
+        opener = net.build_opener()
         req = urllib.request.Request("https://api.github.com", method="HEAD")
         opener.open(req, timeout=10)
         return True

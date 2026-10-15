@@ -10,13 +10,17 @@ import os
 import re
 import urllib.request
 
-PROXY = "http://<你的代理地址>"
+# 代理不再硬编码 —— 唯一真源是 daemon/net.py（见那个文件顶部说明）
 GITHUB_URL_RE = re.compile(r"github\.com/([^/]+)/([^/]+)")
 
 
 def set_proxy():
-    os.environ["https_proxy"] = PROXY
-    os.environ["http_proxy"] = PROXY
+    """把解析出来的代理同步进本进程环境变量（子进程用）。"""
+    from daemon import net
+    proxy = net.resolve_proxy()
+    if proxy:
+        os.environ["https_proxy"] = proxy
+        os.environ["http_proxy"] = proxy
 
 
 def api_get(url: str) -> dict:
@@ -31,9 +35,9 @@ def api_get(url: str) -> dict:
     于是**每个 skill 装完都是 partial**，那个字段彻底失去区分度。
     把 token 接上，L2 才从"装饰"变回"检查"。
     """
+    from daemon import net
     set_proxy()
-    proxy_handler = urllib.request.ProxyHandler({"https": PROXY, "http": PROXY})
-    opener = urllib.request.build_opener(proxy_handler)
+    opener = net.build_opener()
     try:
         from daemon.fetcher import github_headers
         headers = github_headers()

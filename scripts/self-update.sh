@@ -25,8 +25,11 @@
 #   self-update.sh --rollback <目录>  回滚到指定的留档
 set -euo pipefail
 
-export https_proxy="http://<你的代理地址>"
-export http_proxy="http://<你的代理地址>"
+# 代理不再写死（见 安装部署说明.md §3）：设了 SKILL_FORGE_PROXY 才走代理。
+if [ -n "${SKILL_FORGE_PROXY:-}" ]; then
+    export https_proxy="$SKILL_FORGE_PROXY"
+    export http_proxy="$SKILL_FORGE_PROXY"
+fi
 
 SKILL_FORGE="${SKILL_FORGE_DIR:-$HOME/.claude/skills/skill-forge}"
 BACKUP_DIR="$SKILL_FORGE/.backup"

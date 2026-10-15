@@ -9,7 +9,7 @@ import urllib.parse
 from datetime import datetime
 from pathlib import Path
 
-PROXY = "http://<你的代理地址>"
+# 代理不再硬编码 —— 唯一真源是 daemon/net.py
 SKILL_ROOT = Path.home() / ".claude" / "skills" / "skill-forge"
 CACHE_FILE = SKILL_ROOT / "daemon" / "translation_cache.json"
 LOG_FILE = SKILL_ROOT / "daemon" / "watchdog.log"
@@ -35,8 +35,8 @@ def log(msg: str):
 def _api_translate(text: str) -> str:
     """调用 Google Translate API 翻译单条文本"""
     url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=" + urllib.parse.quote(text, safe="")
-    proxy_handler = urllib.request.ProxyHandler({"https": PROXY, "http": PROXY})
-    opener = urllib.request.build_opener(proxy_handler)
+    from daemon import net
+    opener = net.build_opener()
     req = urllib.request.Request(url, headers={"User-Agent": "skill-forge/1.0"})
 
     try:

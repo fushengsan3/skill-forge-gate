@@ -12,7 +12,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-PROXY = "http://<你的代理地址>"
+# 代理地址不在这里硬编码 —— 唯一真源是 daemon/net.py（见其顶部说明）
 SKILL_ROOT = Path.home() / ".claude" / "skills"
 FORGE_ROOT = Path.home() / ".claude" / "skills" / "skill-forge"
 QUEUE_FILE = FORGE_ROOT / "templates" / "install-queue.json"
@@ -68,15 +68,16 @@ def _git_clone(url: str, dest: Path, branch: str = "main"):
     而这些东西会被装进 ~/.claude/skills/ 并且**被 Claude 当指令读**。
     传输层完整性是这条链上仅有的保证 —— 不能用"省事"换掉它。
     直连（不经代理）不关校验可以正常 clone，已实测。
-    代理（可乐云 <你的代理地址>）当时没开，那条路径**尚未验证**：
+    代理下那条路径当时**尚未验证**（测的时候作者本机的代理没开）：
     如果将来在代理下出现证书错误，正确做法是查代理的 CA，而不是把这行加回来。
 
     失败原因要往外带：以前证书错误和"仓库不存在"给的是同一句
     "（仓库不存在或网络不通）"，等于把可诊断性也一起关掉了。
     """
-    env = os.environ.copy()
-    env["https_proxy"] = PROXY
-    env["http_proxy"] = PROXY
+    from daemon import net
+    # 只在本进程真的解析出代理时才注入。以前这里无条件写死一个地址，
+    # 在别人机器上等于让 git 也去撞一个不存在的端口。
+    env = net.subprocess_env()
     # 显式清掉：万一是用户环境里本来就有的，也不能让它悄悄关掉校验
     env.pop("GIT_SSL_NO_VERIFY", None)
 
