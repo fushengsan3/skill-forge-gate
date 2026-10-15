@@ -51,7 +51,9 @@ def finish():
 
 
 # 那个地址本身**不能以字面量出现在本文件里** —— 否则下面的静态扫描会扫到它自己。
-HARDCODED = "127.0.0.1:" + "78" + "97"
+# 两个具体地址都不许出现：前者是作者本机那个，后者是早先换上去的示例值。
+# **都从片段拼出来** —— 本文件自己也不能含这个字面量，否则扫描会扫到它自己。
+HARDCODED = ["127.0.0.1:" + "78" + "97", "127.0.0.1:" + "78" + "90"]
 
 
 class Env:
@@ -149,11 +151,10 @@ def main():
             check("https_proxy" not in env2 and "http_proxy" not in env2,
                   "★ 没配代理时**不注入**（以前是无条件写死一个地址）")
 
-    # ---- 6. 回归钉：仓库里不许再出现那个地址 --------------------------
-    print("\n--- 6. ★ 代码里不许再硬编码代理地址（本次改动的回归钉）---")
+    # ---- 6. 回归钉：仓库里不许再出现具体代理地址 ----------------------
+    print("\n--- 6. ★ 任何文件里都不许出现具体代理地址（本次改动的回归钉）---")
     files = subprocess.run(["git", "ls-files", "-z"], cwd=str(ROOT),
                            capture_output=True).stdout.split(b"\0")
-    code_exts = {".py", ".sh", ".ps1", ".js", ".html", ".json", ".yaml", ".dockerfile"}
     offenders = []
     for raw in files:
         if not raw:
@@ -162,18 +163,20 @@ def main():
         p = ROOT / rel
         if not p.is_file():
             continue
-        ext = p.suffix.lower()
-        if ext not in code_exts and p.name != "default.dockerfile":
-            continue          # 文档(.md)里可以留作**示例**
         try:
             body = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if HARDCODED in body:
-            offenders.append(rel)
+        for needle in HARDCODED:
+            if needle in body:
+                offenders.append(f"{rel}（含 {needle}）")
+                break
+    # 文档**同样**不许有具体值 —— 那正是这一条收紧的原因：
+    # 文档里给一个具体地址，读者会当默认值照抄，然后去撞一个不存在的端口。
+    # 要举例就用 `<你的代理地址>` 这种占位符。
     check(not offenders,
-          "代码里没有硬编码的代理地址（文档中可以留作示例）",
-          "仍在：" + ", ".join(offenders) if offenders else "")
+          "被跟踪的文件里都没有具体代理地址（文档也一律用占位符）",
+          "仍在：" + "; ".join(offenders) if offenders else "")
 
     return finish()
 

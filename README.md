@@ -309,11 +309,15 @@ classifier.py 分类排序 ──▶ translate.py 翻译（带缓存）
 
 | 给法 | 适合 | 怎么写 |
 |---|---|---|
-| `SKILL_FORGE_PROXY` 环境变量 | 临时用、命令行里用 | `export SKILL_FORGE_PROXY=http://<你的代理地址>` |
-| `templates/network-config.json` | **守护进程** —— 它是任务计划拉起来的，读不到你终端里 export 的变量 | `{"proxy": "http://<你的代理地址>"}` |
+| `SKILL_FORGE_PROXY` 环境变量 | 临时用、命令行里用 | `export SKILL_FORGE_PROXY=<你的代理地址>` |
+| `templates/network-config.json` | **守护进程** —— 它是任务计划拉起来的，读不到你终端里 export 的变量 | `{"proxy": "<你的代理地址>"}` |
 | 标准的 `https_proxy` / `http_proxy` | 机器上本来就配了代理 | 照常 export，程序会认 |
 
 三个都没有 → 直连。
+
+> `<你的代理地址>` 形如 `http://主机:端口` —— 表格里**刻意只给占位符、不给具体值**。
+> 这里没有默认代理：写一个具体地址上去，读者会以为那是默认值照抄，
+> 结果所有请求都去撞一个他机器上不存在的端口。
 
 > ⚠️ **两个实测出来的点**：
 >
