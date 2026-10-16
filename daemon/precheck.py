@@ -153,7 +153,7 @@ def _run(name: str, kind: str, fn) -> dict:
                 "reason": f"返回了 {type(result).__name__}，不是报告"}
 
     # ⚠️ 说明文字**在不同 verdict 下放在不同字段里**，这里必须都认：
-    #     L1/L3/L4（预检自己那几层）→ `reason`
+    #     L1/L3/L4（预检自己那几层）→ 早先以为只有 `reason`，其实还有 `issues`
     #     L5 的 REVIEW               → `note`（`run_docker_sandbox` 只在 REVIEW 分支写它）
     #     L5 的 ERROR / SKIPPED      → `error`
     #
@@ -163,9 +163,30 @@ def _run(name: str, kind: str, fn) -> dict:
     # 读的人无从知道为什么。而 L5 其实说得很清楚（"skill 计划执行 4 个 Bash 命令，
     # 请与 L3 静态分析结果交叉验证"）—— 它只是没被搬过来。
     #
+    # ⚠️ 那次修补加了 `note` / `error`，**但没覆盖 `issues`** —— 于是同一个
+    # "冒号后面什么都没有"在 L1/L3/L4 上原样留着。2026-10-16 实测到：
+    # L1 因根目录没有 SKILL.md 而 REJECT，报告只给出
+    #     「L1 结构 未通过（REJECT）：」      ← 又是空的
+    # 用户只能来问"到底是为什么"。所以下面补上 `issues` 这一支。
+    #
     # 这与下面那份计数白名单是**同一个形状的坑**（那里写着"L5 的 write_calls /
     # network_indicators 就这么丢过一次"）：不是没算出来，是没搬出去。
     detail = (result.get("reason") or result.get("note") or result.get("error") or "")
+
+    if not detail:
+        issues = result.get("issues")
+        if isinstance(issues, list) and issues:
+            def _msg(it):
+                return (it.get("msg") or "") if isinstance(it, dict) else str(it)
+
+            errs = [_msg(i) for i in issues
+                    if isinstance(i, dict) and i.get("severity") == "error"]
+            rest = [_msg(i) for i in issues
+                    if not (isinstance(i, dict) and i.get("severity") == "error")]
+            # error 优先：拦下安装的总是那几条。把 warning 混在前面，
+            # 读的人会以为失败原因是那条无关紧要的。
+            picked = errs or rest
+            detail = "；".join(m for m in picked if m)
     layer = {
         "name": name,
         "kind": kind,

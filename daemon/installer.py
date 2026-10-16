@@ -13,6 +13,19 @@ from datetime import datetime
 from pathlib import Path
 
 # 代理地址不在这里硬编码 —— 唯一真源是 daemon/net.py（见其顶部说明）
+#
+# ⚠️ 这三个是**各自独立的模块常量**，不是从同一个根派生出来的。
+# 重定向其中一个**不会**带动另外两个：
+#
+#     SKILL_ROOT=临时目录  →  装到临时目录 ✓   但 sources.json 仍写真的 ✗
+#     SKILL_ROOT=临时目录  →  日志仍写真的 watchdog.log ✗
+#
+# 2026-10-16 实测代价：一个只改了 `SKILL_ROOT` 的沙箱测试**装成功了**，
+# 于是 `_update_sources_json()` 照常执行，把 9 条假记录写进了用户**真实的**
+# sources.json —— 测试看着全绿，用户的注册表被污染了（29 → 20 才清干净）。
+# 一次性封装成"改一个根就全跟着走"太大动干戈（`SKILL_ROOT` 是被
+# tests/test_attack.py 直接赋值的既有契约），所以改为：**做隔离测试时三个都改**，
+# 并在 tests/test_installer.py 里钉了一条"真实 sources.json 一字未动"的断言。
 SKILL_ROOT = Path.home() / ".claude" / "skills"
 FORGE_ROOT = Path.home() / ".claude" / "skills" / "skill-forge"
 QUEUE_FILE = FORGE_ROOT / "templates" / "install-queue.json"
@@ -363,9 +376,62 @@ def install_skill(name: str, url: str, full_name: str = "") -> dict:
             return {"ok": False, "error": err}
 
         if not verdict["ok"]:
-            err = f"预检未通过，已拒绝安装：{verdict['summary']}"
-            log(err)
-            return {"ok": False, "error": err, "verify": verdict}
+            # 根目录没通过 —— 但**先别一票否决整个仓库**。
+            #
+            # 2026-10-16：`mksglu/context-mode` 是个 monorepo，8 个 skill 都在
+            # `skills/*/SKILL.md`，而根目录只有一个**没有 frontmatter 的 CLAUDE.md**
+            # （那是这个工具的路由说明，本身不是一个 skill）。用户连试 4 次，
+            # 每次都被根目录这一条拒掉 —— 而那 8 个子 skill **各自都是合格的**。
+            #
+            # 所以：根目录不是合法 skill、但里面确实有嵌套的 skill 时，
+            # 不装根目录，改走子 skill 那条路。
+            #
+            # ⚠️ **这不是放水。** `_discover_sub_skills()` 对每个子 skill 各自跑
+            # 完整的 L1–L5，通过才 copytree（日志里有"跳过子 skill bad-sub：
+            # 预检未通过"的实例）。它纠正的是另一件事 ——
+            # 拿**根目录**的判定去否决**整个仓库**。
+            nested = sorted({sf.parent for sf in skill_files} - {repo_dest})
+            if not nested:
+                err = f"预检未通过，已拒绝安装：{verdict['summary']}"
+                log(err)
+                return {"ok": False, "error": err, "verify": verdict}
+
+            log(f"根目录未通过预检（{verdict['summary']}）—— 但它含 {len(nested)} 个"
+                f"嵌套 skill，改为逐个验、逐个装那些")
+            sha = _get_latest_sha(repo_dest)
+            sub_verify = []
+            # ⚠️ primary_name 传空串是**故意的**：_discover_sub_skills 里有一句
+            # `if skill_name == primary_name: continue`，用来避免"主 skill 又被子
+            # 发现装一遍"。但这里我们**没装根目录**，所以没有任何名字该被跳过 ——
+            # 传 `name` 会让 `skills/context-mode/`（目录名正好等于主名）
+            # 被静默跳掉，8 个里少一个，而且日志上看不出为什么。
+            extra_skills = _discover_sub_skills(repo_dest, "", clone_url, sha,
+                                                report=sub_verify)
+            ok_n = len(extra_skills)
+            log(f"monorepo 处理完成：装上 {ok_n} 个子 skill，"
+                f"跳过 {len(sub_verify) - ok_n} 个（各自的原因见上）")
+            return {
+                "ok": bool(ok_n),
+                "sha": sha[:8] if sha else "",
+                "path": "",
+                "files": 0,
+                # 让面板/日志能如实说明"装了什么、以及为什么没装根目录"
+                "skipped_primary": True,
+                "extra_skills": extra_skills,
+                "sub_skills_verify": sub_verify,
+                "trust_level": "unverified",
+                "primary_verdict": verdict,
+                "verify": {
+                    "ok": bool(ok_n),
+                    "summary": (f"根目录不是合法 skill（{verdict['summary']}）—— "
+                                f"已改为逐个安装其中的 {ok_n} 个子 skill，"
+                                f"每个都各自过了 L1–L5"),
+                    "layers": verdict.get("layers", []),
+                    "blocked_by": [],
+                },
+                "error": "" if ok_n else
+                         f"根目录不是合法 skill，且没有任何子 skill 通过预检：{verdict['summary']}",
+            }
 
         log(f"预检通过：{verdict['summary']}")
 
@@ -489,103 +555,139 @@ def _discover_sub_skills(repo_dir: Path, primary_name: str, clone_url: str = "",
     sub_verify = report if report is not None else []
     # 匹配所有常见的 skill 文件名
     patterns = ["SKILL.md", "skill.md", "CLAUDE.md", "claude.md"]
-    for pattern in patterns:
+
+    # ---- 先收齐候选，按"最浅优先"排序，**然后**才动手装 ----
+    #
+    # ⚠️ 以前是边遍历边装：`for pattern: for skill_file in rglob(pattern)`，
+    # 谁先被撞上谁赢。而 rglob 的顺序取决于文件系统 —— 同一个仓库换台机器，
+    # 装进来的可能是另一份。名字相同、内容不同，装完**没有任何迹象**指明装的是哪份。
+    #
+    # 2026-10-16 实测 mksglu/context-mode 同时有：
+    #     skills/context-mode/SKILL.md                          (16683 字节，正主)
+    #     configs/antigravity-cli/skills/context-mode/SKILL.md  ( 3398 字节，某编辑器的变体)
+    # 本机撞上的是后面那个 —— 装了个 antigravity 专用的变体当正主。
+    #
+    # 排序键 = (路径深度, 相对路径, patterns 序号)：
+    #   · 浅的优先 —— 与 `_install_skill_files()` 挑主 skill 的口径一致；
+    #     顶层 `skills/<名>/` 比 `configs/<工具>/skills/<名>/` 更可能是作者的正主。
+    #   · 相对路径作第二键，把"同深度"也钉死 —— 这才是真正摆脱遍历顺序的那一键。
+    #   · patterns 序号作第三键：同一目录里既有 SKILL.md 又有 CLAUDE.md 时永远选
+    #     SKILL.md，与 verify/l1_structure.py 的 find_skill_file 保持同一个顺序。
+    skip_parts = (".git", "node_modules", "__pycache__", ".venv")
+    candidates = {}   # skill_name -> (排序键, 所在目录)
+    collisions = {}   # skill_name -> 该名字在仓库里出现过的所有位置
+    for rank, pattern in enumerate(patterns):
         for skill_file in repo_dir.rglob(pattern):
+            # 与 _find_skill_files 对齐：依赖目录里的 SKILL.md 一律不算 skill
+            if any(p in skill_file.parts for p in skip_parts):
+                continue
             parent = skill_file.parent
             if parent == repo_dir:
                 continue
             skill_name = parent.name
             if skill_name == primary_name:
                 continue
-            if skill_name in extra or skill_name in skipped:
-                continue
+            rel = parent.relative_to(repo_dir)
+            collisions.setdefault(skill_name, set()).add(rel.as_posix())
+            key = (len(rel.parts), rel.as_posix(), rank)
+            if skill_name not in candidates or key < candidates[skill_name][0]:
+                candidates[skill_name] = (key, parent)
 
-            # 这里的名字来自**克隆下来的仓库目录名**，理论上单个路径分量不会带分隔符，
-            # 但它终究是外部内容。同一个仓库里通常是几十个文件指向同一个坏目录名，
-            # 所以失败要记账（skipped），不然日志会被同一句话刷屏。
-            try:
-                dest_dir = safe_paths.resolve_within(SKILL_ROOT, skill_name)
-            except safe_paths.UnsafeName as e:
-                skipped.add(skill_name)
-                log(f"  跳过一个子 skill {skill_name!r}：{e}")
-                continue
+    ordered = sorted((key, n, p) for n, (key, p) in candidates.items())
+    for sort_key, skill_name, parent in ordered:
+        if skill_name in extra or skill_name in skipped:
+            continue
+        # 重名要留痕 —— 静默挑一份正是这个 bug 能藏到现在的原因。
+        if len(collisions.get(skill_name, ())) > 1:
+            others = sorted(collisions[skill_name] - {sort_key[1]})
+            log(f"  子 skill {skill_name!r} 在仓库里有 {len(collisions[skill_name])} 份，"
+                f"选了最浅的一份 {sort_key[1]}（未采用：{'、'.join(others)}）")
+        # 这里的名字来自**克隆下来的仓库目录名**，理论上单个路径分量不会带分隔符，
+        # 但它终究是外部内容。同一个仓库里通常是几十个文件指向同一个坏目录名，
+        # 所以失败要记账（skipped），不然日志会被同一句话刷屏。
+        try:
+            dest_dir = safe_paths.resolve_within(SKILL_ROOT, skill_name)
+        except safe_paths.UnsafeName as e:
+            skipped.add(skill_name)
+            log(f"  跳过一个子 skill {skill_name!r}：{e}")
+            continue
 
-            # ⚠️ 「克隆下来的仓库里有个目录就叫 `skill-forge`」= 一个外部仓库
-            # 想**覆盖掉管理器自己**。`skill-forge` 是合法的单分量名，
-            # `resolve_within` 拦不住，所以这条必须独立存在。
-            if safe_paths.is_forge_dir(dest_dir, SKILL_ROOT):
-                skipped.add(skill_name)
-                log(f"  跳过一个子 skill {skill_name!r}：它指向 skill-forge 本体，"
-                    "装上去会把管理器覆盖掉")
-                continue
+        # ⚠️ 「克隆下来的仓库里有个目录就叫 `skill-forge`」= 一个外部仓库
+        # 想**覆盖掉管理器自己**。`skill-forge` 是合法的单分量名，
+        # `resolve_within` 拦不住，所以这条必须独立存在。
+        if safe_paths.is_forge_dir(dest_dir, SKILL_ROOT):
+            skipped.add(skill_name)
+            log(f"  跳过一个子 skill {skill_name!r}：它指向 skill-forge 本体，"
+                "装上去会把管理器覆盖掉")
+            continue
 
-            # ---- 子 skill 也要过预检 ----
-            #
-            # **以前它不过。** `precheck.verify_repo` 只在整仓上跑一次，而
-            # L1/L4/L5 都只读**顶层** `SKILL.md`；子 skill 被 copytree 成
-            # `~/.claude/skills/<子名>` 之后是个**独立的、会被 Claude 读指令的 skill**，
-            # 它的 SKILL.md 却一次都没被看过。于是"主 skill 干净、恶意藏在子 skill
-            # 指令文本里"的 monorepo，在面板路径上会被装进去并标成 verified。
-            #
-            # 逃逸的**只是指令文本**：L3 扫目录是递归的，子目录里的脚本本来就被覆盖。
-            # 但指令文本正是 Claude 会当命令读的东西。
-            #
-            # 跳过 L2：来源是同一个仓库，整仓那次已经查过，重打 GitHub API
-            # 会把未鉴权的 60 次/小时额度烧光（见 precheck.verify_repo 的 skip 说明）。
-            sub_verdict = None
-            try:
-                sub_verdict = precheck.verify_repo(parent, clone_url, skip=("L2",))
-            except Exception as e:
-                # 验不了 ≠ 通过了。验不了就不装 —— 这条路径无人值守。
-                skipped.add(skill_name)
-                log(f"  跳过子 skill {skill_name}：预检没能跑起来"
-                    f"（{type(e).__name__}: {e}）")
-                sub_verify.append({"name": skill_name, "ok": False,
-                                   "summary": f"预检异常：{type(e).__name__}: {e}"})
-                continue
+        # ---- 子 skill 也要过预检 ----
+        #
+        # **以前它不过。** `precheck.verify_repo` 只在整仓上跑一次，而
+        # L1/L4/L5 都只读**顶层** `SKILL.md`；子 skill 被 copytree 成
+        # `~/.claude/skills/<子名>` 之后是个**独立的、会被 Claude 读指令的 skill**，
+        # 它的 SKILL.md 却一次都没被看过。于是"主 skill 干净、恶意藏在子 skill
+        # 指令文本里"的 monorepo，在面板路径上会被装进去并标成 verified。
+        #
+        # 逃逸的**只是指令文本**：L3 扫目录是递归的，子目录里的脚本本来就被覆盖。
+        # 但指令文本正是 Claude 会当命令读的东西。
+        #
+        # 跳过 L2：来源是同一个仓库，整仓那次已经查过，重打 GitHub API
+        # 会把未鉴权的 60 次/小时额度烧光（见 precheck.verify_repo 的 skip 说明）。
+        sub_verdict = None
+        try:
+            sub_verdict = precheck.verify_repo(parent, clone_url, skip=("L2",))
+        except Exception as e:
+            # 验不了 ≠ 通过了。验不了就不装 —— 这条路径无人值守。
+            skipped.add(skill_name)
+            log(f"  跳过子 skill {skill_name}：预检没能跑起来"
+                f"（{type(e).__name__}: {e}）")
+            sub_verify.append({"name": skill_name, "ok": False,
+                               "summary": f"预检异常：{type(e).__name__}: {e}"})
+            continue
 
-            if not sub_verdict.get("ok"):
-                skipped.add(skill_name)
-                log(f"  跳过子 skill {skill_name}：预检未通过 —— {sub_verdict.get('summary')}")
-                sub_verify.append({"name": skill_name, "ok": False,
-                                   "summary": sub_verdict.get("summary", ""),
-                                   "verify": sub_verdict})
-                continue
+        if not sub_verdict.get("ok"):
+            skipped.add(skill_name)
+            log(f"  跳过子 skill {skill_name}：预检未通过 —— {sub_verdict.get('summary')}")
+            sub_verify.append({"name": skill_name, "ok": False,
+                               "summary": sub_verdict.get("summary", ""),
+                               "verify": sub_verdict})
+            continue
 
-            # 安装额外发现的 skill
-            try:
-                if dest_dir.exists():
-                    shutil.rmtree(dest_dir)
-                shutil.copytree(parent, dest_dir, ignore=shutil.ignore_patterns(".git"))
-                extra.append(skill_name)
-                # 注册子 skill 到 sources.json
-                # ⚠️ 这里以前是 `if clone_url and sha:`，而主 skill 那句
-                # `_update_sources_json(name, clone_url, sha)` 是**无条件**的。
-                # 两者不一致的后果很实在：sha 取不到时（克隆下来的目录不是 git 仓库、
-                # 或者没有 HEAD），子 skill 会被**装到磁盘上却不登记** ——
-                # 它出现在 skills/ 里、却不在 sources.json 里，
-                # 于是面板显示"没装过"，而下一轮发现流程又会把它当成"新发现"。
-                # 现在与主 skill 对齐：知道仓库地址就登记，sha 允许为空串。
-                if clone_url:
-                    # subpath = 这个子 skill 在仓库里的位置。装的时候就知道，
-                    # 以前却写死成空串 —— 见 _update_sources_json 里的说明。
-                    _update_sources_json(
-                        skill_name, clone_url, sha,
-                        trust_level=_trust_level(sub_verdict),
-                        trust_note=_trust_note(sub_verdict),
-                        subpath=parent.relative_to(repo_dir).as_posix())
-                sub_verify.append({"name": skill_name, "ok": True,
-                                   "summary": sub_verdict.get("summary", ""),
-                                   "verify": sub_verdict})
-                log(f"  发现子 skill: {skill_name} —— {sub_verdict.get('summary')}")
-            except Exception as e:
-                # **这里以前是裸的 `except Exception: pass`。**
-                # rmtree / copytree / 写 sources.json 任一失败都无声消失 ——
-                # 目录里有这个 skill、sources.json 里没有、日志里也没有。
-                skipped.add(skill_name)
-                sub_verify.append({"name": skill_name, "ok": False,
-                                   "summary": f"安装失败：{type(e).__name__}: {e}"})
-                log(f"  子 skill {skill_name} 安装失败：{type(e).__name__}: {e}")
+        # 安装额外发现的 skill
+        try:
+            if dest_dir.exists():
+                shutil.rmtree(dest_dir)
+            shutil.copytree(parent, dest_dir, ignore=shutil.ignore_patterns(".git"))
+            extra.append(skill_name)
+            # 注册子 skill 到 sources.json
+            # ⚠️ 这里以前是 `if clone_url and sha:`，而主 skill 那句
+            # `_update_sources_json(name, clone_url, sha)` 是**无条件**的。
+            # 两者不一致的后果很实在：sha 取不到时（克隆下来的目录不是 git 仓库、
+            # 或者没有 HEAD），子 skill 会被**装到磁盘上却不登记** ——
+            # 它出现在 skills/ 里、却不在 sources.json 里，
+            # 于是面板显示"没装过"，而下一轮发现流程又会把它当成"新发现"。
+            # 现在与主 skill 对齐：知道仓库地址就登记，sha 允许为空串。
+            if clone_url:
+                # subpath = 这个子 skill 在仓库里的位置。装的时候就知道，
+                # 以前却写死成空串 —— 见 _update_sources_json 里的说明。
+                _update_sources_json(
+                    skill_name, clone_url, sha,
+                    trust_level=_trust_level(sub_verdict),
+                    trust_note=_trust_note(sub_verdict),
+                    subpath=parent.relative_to(repo_dir).as_posix())
+            sub_verify.append({"name": skill_name, "ok": True,
+                               "summary": sub_verdict.get("summary", ""),
+                               "verify": sub_verdict})
+            log(f"  发现子 skill: {skill_name} —— {sub_verdict.get('summary')}")
+        except Exception as e:
+            # **这里以前是裸的 `except Exception: pass`。**
+            # rmtree / copytree / 写 sources.json 任一失败都无声消失 ——
+            # 目录里有这个 skill、sources.json 里没有、日志里也没有。
+            skipped.add(skill_name)
+            sub_verify.append({"name": skill_name, "ok": False,
+                               "summary": f"安装失败：{type(e).__name__}: {e}"})
+            log(f"  子 skill {skill_name} 安装失败：{type(e).__name__}: {e}")
     return extra
 
 
