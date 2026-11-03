@@ -5,10 +5,12 @@
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -30,6 +32,8 @@ SKILL_ROOT = Path.home() / ".claude" / "skills"
 FORGE_ROOT = Path.home() / ".claude" / "skills" / "skill-forge"
 QUEUE_FILE = FORGE_ROOT / "templates" / "install-queue.json"
 SOURCES_FILE = FORGE_ROOT / "sources.json"
+_update_lock = threading.Lock()
+_queue_lock = threading.Lock()
 
 # 本模块既能被 `from daemon.installer import ...` 用，也能被
 # `python daemon/installer.py` 直接跑。后者的 sys.path[0] 是 daemon/，
@@ -72,7 +76,7 @@ def _tail(s: str, limit: int = 200) -> str:
     return lines[-1][:limit] if lines else ""
 
 
-def _git_clone(url: str, dest: Path, branch: str = "main"):
+def _git_clone(url: str, dest: Path, branch: str = "main", *, strict_branch=False):
     """通过代理 clone 仓库（优先 shallow clone）。返回 (是否成功, 失败原因)。
 
     **刻意不设 GIT_SSL_NO_VERIFY。**（2026-10-05 之前是设的。）
@@ -90,7 +94,11 @@ def _git_clone(url: str, dest: Path, branch: str = "main"):
     from daemon import net
     # 只在本进程真的解析出代理时才注入。以前这里无条件写死一个地址，
     # 在别人机器上等于让 git 也去撞一个不存在的端口。
-    env = net.subprocess_env()
+    from daemon import privacy
+    try:
+        env = privacy.git_env(net.subprocess_env())
+    except ValueError as exc:
+        return False, str(exc)
     # 显式清掉：万一是用户环境里本来就有的，也不能让它悄悄关掉校验
     env.pop("GIT_SSL_NO_VERIFY", None)
 
@@ -102,7 +110,8 @@ def _git_clone(url: str, dest: Path, branch: str = "main"):
         # check=True 变成 CalledProcessError，报错还是"仓库不存在或网络不通"。
         # 2026-10-06 实测确认过这个失败形状。
         return subprocess.run(args, capture_output=True, text=True, errors="replace",
-                              timeout=timeout, env=env, check=True)
+                              timeout=timeout, env=env, check=True,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
     try:
         run(["git", "clone", "--depth", "1", "--single-branch", "-b", branch,
@@ -110,6 +119,8 @@ def _git_clone(url: str, dest: Path, branch: str = "main"):
         return True, ""
     except subprocess.CalledProcessError as e:
         reason = _tail(e.stderr)
+        if strict_branch:
+            return False, reason
         # shallow clone 可能仅因 branch 不存在而失败，回退到全 clone
         try:
             if dest.exists():
@@ -137,7 +148,8 @@ def _find_skill_files(repo_dir: Path) -> list:
     return results
 
 
-def _install_skill_files(skill_name: str, skill_files: list, repo_dir: Path) -> Path:
+def _install_skill_files(skill_name: str, skill_files: list, repo_dir: Path,
+                         destination: Path = None) -> Path:
     """
     安装 skill 文件到 ~/.claude/skills/<skill_name>/
     如果仓库只有一个 SKILL.md 在根目录，复制整个仓库
@@ -146,7 +158,7 @@ def _install_skill_files(skill_name: str, skill_files: list, repo_dir: Path) -> 
     调用方**必须先**用 safe_paths.check_name 验过 skill_name（install_skill 里做了）。
     这里再拼一次是为了纵深：下面第一件事就是 rmtree。
     """
-    dest_dir = safe_paths.resolve_within(SKILL_ROOT, skill_name)
+    dest_dir = destination or safe_paths.resolve_within(SKILL_ROOT, skill_name)
 
     if len(skill_files) == 1 and skill_files[0].parent == repo_dir:
         # 单个 SKILL.md 在仓库根目录 → 复制整个目录（保留相关资源）
@@ -205,7 +217,8 @@ def _get_latest_sha(repo_dir: Path) -> str:
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_dir), "rev-parse", "HEAD"],
-            capture_output=True, text=True, errors="replace", timeout=10
+            capture_output=True, text=True, errors="replace", timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
         )
         # 显式挡 None：解码失败时 stdout 会是 None（见上面 run() 那条注释），
         # 而这里外面是 `except Exception: return ""` —— 那会把"读不出来"和
@@ -296,7 +309,7 @@ def _is_github_url(url: str) -> bool:
     return host == "github.com" or host.endswith(".github.com")
 
 
-def install_skill(name: str, url: str, full_name: str = "") -> dict:
+def _install_skill(name: str, url: str, full_name: str = "") -> dict:
     """
     安装单个 skill
     返回 {"ok": true/false, "error": "...", "sha": "..."}
@@ -468,6 +481,253 @@ def install_skill(name: str, url: str, full_name: str = "") -> dict:
             "trust_level": _trust_level(verdict),
             "verify": verdict,
         }
+
+
+def _finish_codex_sync(name: str, result: dict) -> dict:
+    if result.get("ok"):
+        from daemon.codex_sync import sync_skills
+        names = [name] + result.get("extra_skills", []) + result.get("updated_skills", [])
+        report = sync_skills(SKILL_ROOT, SOURCES_FILE.parent, names)
+        result["codex_sync"] = report
+        if not report["ok"]:
+            log("技能已安装，但 Codex 同步未完成：" + "; ".join(report["errors"]))
+    return result
+
+
+def install_skill(name: str, url: str, full_name: str = "") -> dict:
+    return _finish_codex_sync(name, _install_skill(name, url, full_name))
+
+
+def _commit_staged_updates(staged: dict, records: dict, stage_dir: Path) -> dict:
+    """Replace staged directories and registry together; roll back every directory."""
+    sources = json.loads(SOURCES_FILE.read_text(encoding="utf-8"))
+    old_records = {name: dict(sources.get(name, {})) for name in records}
+    for name, record in records.items():
+        sources[name] = dict(sources.get(name, {}), **record)
+    registry_stage = stage_dir / "sources.json"
+    registry_stage.write_text(json.dumps(sources, ensure_ascii=False, indent=2), encoding="utf-8")
+    backups = FORGE_ROOT / ".backup"
+    backups.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    moved = []
+    try:
+        for name, stage in staged.items():
+            dest = safe_paths.resolve_within(SKILL_ROOT, name)
+            if dest.is_symlink() or safe_paths.is_forge_dir(dest, SKILL_ROOT):
+                raise ValueError("拒绝替换链接或管理器本体：" + name)
+            backup = backups / (name + "-" + stamp) if dest.exists() else None
+            if backup:
+                dest.rename(backup)
+            moved.append((name, dest, backup))
+            stage.rename(dest)
+        registry_stage.replace(SOURCES_FILE)
+    except Exception:
+        for _, dest, backup in reversed(moved):
+            if dest.exists():
+                shutil.rmtree(dest)
+            if backup:
+                backup.rename(dest)
+        raise
+    from daemon.version_history import write_backup_metadata
+    for name, _, backup in moved:
+        if backup:
+            try:
+                write_backup_metadata(backup, old_records[name])
+            except OSError:
+                log('备份版本信息未能保存：' + name)
+    return {name: str(backup) if backup else "" for name, _, backup in moved}
+
+
+def _checkout_revision(repo: Path, revision: str):
+    """Fetch and select a commit from the already validated registered remote."""
+    from daemon import net, privacy
+    if not re.fullmatch(r'[0-9a-fA-F]{40}', revision or ''):
+        raise ValueError('版本号无效')
+    env = privacy.git_env(net.subprocess_env())
+    flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    for args in (['fetch', '--depth', '1', 'origin', revision], ['checkout', '--detach', 'FETCH_HEAD']):
+        result = subprocess.run(['git', '-C', str(repo)] + args, env=env, capture_output=True,
+                                text=True, errors='replace', timeout=120, creationflags=flags)
+        if result.returncode:
+            raise ValueError('无法获取所选版本：' + _redact(result.stderr or 'Git 失败'))
+    if _get_latest_sha(repo).lower() != revision.lower():
+        raise ValueError('获取的版本与选择不一致')
+
+
+def _update_collection(name: str, repo: Path, url: str, branch: str, sha: str) -> dict:
+    """Install a skills/ collection with its shared runtime, excluding fixtures."""
+    from verify.l1_structure import find_skill_file
+    from daemon.fetcher import _extract_github_fullname
+    with tempfile.TemporaryDirectory(prefix=".sf-update-", dir=SKILL_ROOT) as tmp:
+        stage_dir = Path(tmp)
+        package = stage_dir / name
+        shutil.copytree(repo, package, ignore=shutil.ignore_patterns(
+            ".git", ".github", "node_modules", "__pycache__", ".venv", "tests", "examples"))
+        members = {p.name: p for p in sorted((package / "skills").iterdir())
+                   if p.is_dir() and find_skill_file(p)}
+        if not members:
+            return {"ok": False, "error": "skills/ 中未找到可更新的子技能"}
+        sources = json.loads(SOURCES_FILE.read_text(encoding="utf-8"))
+        for child in members:
+            dest = safe_paths.resolve_within(SKILL_ROOT, child)
+            registered = sources.get(child, {})
+            if (child == name or safe_paths.is_forge_dir(dest, SKILL_ROOT)
+                    or dest.is_symlink()
+                    or ((dest.exists() or registered) and
+                        _extract_github_fullname(registered.get("url", "")) !=
+                        _extract_github_fullname(url))):
+                return {"ok": False, "error": "子技能名称与其他安装冲突：" + child}
+        verdict = precheck.verify_collection(package, url, members, skills_dir=SKILL_ROOT)
+        if not verdict.get("ok"):
+            return {"ok": False, "error": "技能集合预检未通过：" + verdict["summary"], "verify": verdict}
+        common = dict(url=url, branch=branch, installed_sha=sha,
+                      updated_at=datetime.now().isoformat(timespec="seconds"), source="skill-forge")
+        records = {name: dict(common, type="collection", subpath="",
+                             trust_level=_trust_level(verdict), trust_note=_trust_note(verdict))}
+        staged = {}
+        for child, source in members.items():
+            stage = stage_dir / ("child-" + child)
+            shutil.copytree(source, stage)
+            staged[child] = stage
+            child_verdict = verdict["children"][child]
+            records[child] = dict(common, type="remote", subpath="skills/" + child,
+                                  trust_level=_trust_level(child_verdict), trust_note=_trust_note(child_verdict))
+            if child not in sources:
+                records[child]["installed_at"] = common["updated_at"]
+        staged[name] = package
+        backups = _commit_staged_updates(staged, records, stage_dir)
+        return {"ok": True, "name": name, "sha": sha, "backup": backups[name],
+                "backups": backups, "updated_skills": list(members), "verify": verdict,
+                "trust_level": _trust_level(verdict)}
+
+
+def _relocated_primary(installed: Path, repo: Path):
+    """Find a previously installed single skill that moved under skills/."""
+    from verify.l1_structure import FRONTMATTER_RE, find_skill_file
+    entry = find_skill_file(installed)
+    if not entry:
+        return None
+    match = FRONTMATTER_RE.match(entry.read_text(encoding="utf-8", errors="replace"))
+    if not match:
+        return None
+    field = re.search(r'^name\s*:\s*([^\n#]+?)\s*(?:#.*)?$', match.group(1), re.MULTILINE)
+    if not field:
+        return None
+    skill_name = field.group(1).strip().strip("\"'")
+    try:
+        safe_paths.check_name(skill_name)
+    except safe_paths.UnsafeName:
+        return None
+    candidate = (repo / "skills" / skill_name).resolve()
+    if not candidate.is_relative_to(repo.resolve()) or not candidate.is_dir():
+        return None
+    return candidate if find_skill_file(candidate) else None
+
+
+def _same_skill_root(installed: Path, repo: Path) -> bool:
+    """Allow an older root version only when its declared identity matches."""
+    from verify.l1_structure import FRONTMATTER_RE, find_skill_file
+    names = []
+    for directory in (installed, repo):
+        entry = find_skill_file(directory)
+        if not entry or entry.is_symlink(): return False
+        match = FRONTMATTER_RE.match(entry.read_text(encoding='utf-8', errors='replace')[:12000])
+        field = re.search(r'^name\s*:\s*([^\n#]+?)\s*(?:#.*)?$', match.group(1), re.MULTILINE) if match else None
+        if not field: return False
+        names.append(field.group(1).strip().strip("\"'"))
+    return bool(names[0]) and names[0].lower() == names[1].lower()
+
+
+def _update_skill(name: str, info: dict, revision: str = '') -> dict:
+    """Update only the registered branch/path, keeping a rollback copy.
+
+    Clone, validation and file selection are shared with installation. Updates
+    preserve registered subpaths and never fall back to another branch. A root
+    registration with skills/ and no root entry is updated as a collection.
+    """
+    with _update_lock:
+        try:
+            dest = safe_paths.resolve_within(SKILL_ROOT, name)
+            if safe_paths.is_forge_dir(dest, SKILL_ROOT) or info.get("self"):
+                return {"ok": False, "error": "本体请使用 scripts/self-update.sh"}
+            if not dest.is_dir() or dest.is_symlink():
+                return {"ok": False, "error": "安装目录不存在或是链接，无法直接更新"}
+            # Reload after taking the lock: another update may have completed.
+            sources = json.loads(SOURCES_FILE.read_text(encoding="utf-8"))
+            info = sources[name]
+            url = info.get("url", "")
+            if not _is_github_url(url):
+                return {"ok": False, "error": "没有有效的 GitHub 来源地址"}
+            branch = info.get("branch") or "main"
+            subpath = info.get("subpath") or ""
+            # Older registrations may encode the location in the URL.
+            from urllib.parse import unquote
+            for marker in ("/tree/", "/blob/"):
+                if marker in url:
+                    url, location = url.split(marker, 1)
+                    url_branch, _, url_path = location.partition("/")
+                    branch = info.get("branch") or unquote(url_branch)
+                    subpath = subpath or unquote(url_path)
+                    if marker == "/blob/":
+                        subpath = str(Path(subpath).parent)
+                    break
+            url = url.rstrip("/")
+            if not url.endswith(".git"):
+                url += ".git"
+            with tempfile.TemporaryDirectory(prefix="sf-update-") as tmpdir:
+                repo = Path(tmpdir) / "repo"
+                cloned, detail = _git_clone(url, repo, branch, strict_branch=True)
+                if not cloned:
+                    return {"ok": False, "error": "Clone 失败：" + detail}
+                if revision:
+                    _checkout_revision(repo, revision)
+                source = (repo / subpath).resolve()
+                if source.is_relative_to(repo.resolve()) and not source.is_dir() and revision and _same_skill_root(dest, repo):
+                    source, subpath = repo.resolve(), ''
+                if not source.is_relative_to(repo.resolve()) or not source.is_dir():
+                    return {"ok": False, "error": "登记的子目录不存在或超出仓库：" + subpath}
+                files = _find_skill_files(source)
+                sha = _get_latest_sha(repo)
+                if not sha:
+                    return {"ok": False, "error": "无法读取新版本 SHA，未替换现有版本"}
+                if (not subpath and not any(f.parent == source for f in files)
+                        and (source / "skills").is_dir()):
+                    moved = _relocated_primary(dest, repo) if info.get("type") != "collection" else None
+                    if moved:
+                        source = moved
+                        subpath = moved.relative_to(repo.resolve()).as_posix()
+                        files = _find_skill_files(source)
+                    else:
+                        return _update_collection(name, repo, url, branch, sha)
+                # A vanished skill must not be replaced by an arbitrary descendant.
+                if not any(f.parent == source for f in files):
+                    return {"ok": False, "error": "登记目录中未找到 SKILL.md 或 CLAUDE.md"}
+                # Stage on the destination volume, then rename. A failed copy never
+                # touches the installed version. The previous directory is the backup.
+                with tempfile.TemporaryDirectory(prefix=".sf-update-", dir=SKILL_ROOT) as stage_dir:
+                    stage = Path(stage_dir) / name
+                    if info.get("selection_mode"):
+                        from daemon.module_install import _copy_module
+                        _copy_module(source, stage)
+                    else:
+                        _install_skill_files(name, files, source, destination=stage)
+                    verdict = precheck.verify_repo(stage if info.get("selection_mode") else source,
+                                                   url, skills_dir=SKILL_ROOT)
+                    if not verdict.get("ok"):
+                        return {"ok": False, "error": "预检未通过：" + verdict.get("summary", ""),
+                                "verify": verdict}
+                    record = dict(installed_sha=sha, branch=branch, subpath=subpath,
+                                  updated_at=datetime.now().isoformat(timespec="seconds"),
+                                  trust_level=_trust_level(verdict), trust_note=_trust_note(verdict))
+                    backups = _commit_staged_updates({name: stage}, {name: record}, Path(stage_dir))
+                return {"ok": True, "name": name, "sha": sha, "backup": backups[name],
+                        "verify": verdict, "trust_level": _trust_level(verdict)}
+        except Exception as exc:
+            return {"ok": False, "error": f"更新失败：{type(exc).__name__}: {exc}"}
+
+
+def update_skill(name: str, info: dict, revision: str = '') -> dict:
+    return _finish_codex_sync(name, _update_skill(name, info, revision))
 
 
 def _trust_level(verdict) -> str:
@@ -691,7 +951,7 @@ def _discover_sub_skills(repo_dir: Path, primary_name: str, clone_url: str = "",
     return extra
 
 
-def process_install_queue() -> dict:
+def _process_install_queue() -> dict:
     """
     处理安装队列：遍历 pending → 逐个安装 → 移到 history
     返回 {"processed": N, "success": N, "failed": N, "results": [...]}
@@ -711,41 +971,74 @@ def process_install_queue() -> dict:
                 "error": f"安装队列文件损坏，本次未处理任何条目（{type(e).__name__}）"}
 
     pending = queue.get("pending", [])
+    if not isinstance(pending, list):
+        return {"processed": 0, "success": 0, "failed": 0, "results": [],
+                "error": "安装队列格式不正确，本次未处理任何条目"}
+    if any(not isinstance(item, dict) for item in pending):
+        return {"processed": 0, "success": 0, "failed": 0, "results": [],
+                "error": "安装队列包含无效条目，本次未处理任何条目"}
     if not pending:
         return {"processed": 0, "success": 0, "failed": 0, "results": [], "error": ""}
 
     results = []
     success = 0
     failed = 0
+    remaining = []
 
     for item in pending:
         name = item.get("name") or item.get("skill_name") or ""
         url = item.get("url") or item.get("repo_url") or ""
         full_name = item.get("full_name") or item.get("repo") or ""
 
-        result = install_skill(name, url, full_name)
+        try:
+            if "selected_modules" in item:
+                from daemon.module_install import install_selected
+                result = install_selected(name, url, item.get("branch", ""),
+                                          item.get("preview_sha", ""), item["selected_modules"])
+            else:
+                result = {"ok": False, "error": "请先在面板预览并选择要安装的模块",
+                          "requires_preview": True}
+        except Exception as exc:
+            result = {"ok": False, "error": _redact(f"{type(exc).__name__}: {exc}")}
         result["name"] = name
         results.append(result)
 
+        if "selected_modules" in item:
+            for module in result.get("modules", []):
+                if module.get("ok"):
+                    queue.setdefault("history", []).append({
+                        "name": module.get("name", ""), "url": url,
+                        "tool": module.get("target", ""), "subpath": module.get("path", ""),
+                        "sha": result.get("sha", ""), "installed_at": datetime.now().isoformat(),
+                    })
+
         if result["ok"]:
             success += 1
-            queue.setdefault("history", []).append({
-                "name": name,
-                "url": url,
-                "sha": result.get("sha", ""),
-                "installed_at": datetime.now().isoformat(),
-            })
+            if "selected_modules" not in item:
+                queue.setdefault("history", []).append({
+                    "name": name,
+                    "url": url,
+                    "sha": result.get("sha", ""),
+                    "installed_at": datetime.now().isoformat(),
+                })
         else:
             failed += 1
+            if "selected_modules" in item and result.get("failed_modules") is not None:
+                remaining.append(dict(item, selected_modules=result["failed_modules"],
+                                      needs_preview=bool(result.get("requires_preview"))))
+            else:
+                remaining.append(dict(item, needs_preview=bool(result.get("requires_preview"))))
 
-    # 清空 pending，保存
-    queue["pending"] = []
+    # 失败项保留在队列，用户可以重试；成功项不重复安装。
+    queue["pending"] = remaining
     queue["last_processed"] = datetime.now().isoformat()
     try:
         QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
         QUEUE_FILE.write_text(json.dumps(queue, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as exc:
+        return {"processed": len(pending), "success": success, "failed": failed,
+                "results": results, "pending": remaining,
+                "error": f"安装结果无法保存（{type(exc).__name__}），请检查队列后重试"}
 
     log(f"队列处理完成: {success} 成功, {failed} 失败")
     return {
@@ -753,8 +1046,19 @@ def process_install_queue() -> dict:
         "success": success,
         "failed": failed,
         "results": results,
+        "pending": remaining,
         "error": "",
     }
+
+
+def process_install_queue() -> dict:
+    if not _queue_lock.acquire(blocking=False):
+        return {"processed": 0, "success": 0, "failed": 0, "results": [],
+                "error": "已有安装任务正在执行"}
+    try:
+        return _process_install_queue()
+    finally:
+        _queue_lock.release()
 
 
 if __name__ == "__main__":

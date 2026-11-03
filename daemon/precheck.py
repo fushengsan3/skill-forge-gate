@@ -129,7 +129,8 @@ def _docker_available():
     （2026-10-05 机器重启后就真踩到过：守护进程没自启。）
     """
     try:
-        subprocess.run(["docker", "info"], capture_output=True, timeout=10, check=True)
+        subprocess.run(["docker", "info"], capture_output=True, timeout=10, check=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return True, ""
     except FileNotFoundError:
         return False, "这台机器没有 docker 命令（不在 PATH 里）"
@@ -193,6 +194,18 @@ def _run(name: str, kind: str, fn) -> dict:
         "verdict": str(result.get("verdict", "ERROR")),
         "reason": str(detail)[:300],
     }
+    details = []
+    for issue in result.get("issues", []) if isinstance(result.get("issues"), list) else []:
+        if isinstance(issue, dict) and issue.get("msg"):
+            details.append(str(issue["msg"])[:300])
+    for hit in result.get("red", []) if isinstance(result.get("red"), list) else []:
+        if isinstance(hit, dict):
+            location = str(hit.get("file", ""))
+            if hit.get("line") is not None:
+                location += ':' + str(hit["line"])
+            details.append(' · '.join(x for x in (location, str(hit.get("rule", ""))) if x)[:400])
+    if details:
+        layer["details"] = details[:30]
     # 把各层的关键计数带出来 —— 这几个数正是用户/排查的人最想看的。
     #
     # ⚠️ 这份清单是**白名单**：往 summary 里加了新计数却忘了加到这里，那个数
@@ -220,6 +233,9 @@ def _l5(repo_dir: Path, l5) -> dict:
     （2026-10-05 在真机上撞到）。两处判定迟早分叉，而分叉的那一处就是
     "功能在、一次都不触发"的那一处。
     """
+    from daemon import privacy
+    if not privacy.allow_remote_audit():
+        return _skip("L5 沙箱", "隐私设置禁止上传本机技能文件，远程沙箱检查已跳过")
     try:
         info = l5.describe_credentials()
     except Exception as e:
@@ -321,6 +337,29 @@ def verify_repo(repo_dir, url: str, skills_dir=None, skip: tuple = ()) -> dict:
         "blocked_by": [layer["name"] for layer in blocked],
         "summary": summarize(layers, blocked),
     }
+
+
+def verify_collection(repo_dir, url: str, members: dict, skills_dir=None) -> dict:
+    """Verify each declared skill plus scripts shared by the collection."""
+    from verify import l3_content_scan
+    shared = _run("L3 集合共享文件", STATIC,
+                  lambda: l3_content_scan.scan_skill(str(repo_dir)))
+    layers = [shared]
+    blocked = [shared] if shared["verdict"] in BLOCKING_VERDICTS | {"ERROR"} else []
+    children = {}
+    for index, (name, path) in enumerate(members.items()):
+        result = verify_repo(path, url, skills_dir=skills_dir,
+                             skip=("L2",) if index else ())
+        children[name] = result
+        for layer in result.get("layers", []):
+            labelled = dict(layer, name=name + " / " + layer["name"])
+            layers.append(labelled)
+            if layer["name"] in result.get("blocked_by", []):
+                blocked.append(labelled)
+    ok = not blocked and all(v.get("ok") for v in children.values())
+    return {"ok": ok, "layers": layers, "children": children,
+            "blocked_by": [layer["name"] for layer in blocked],
+            "summary": f"{len(members)} 个子技能；" + summarize(layers, blocked)}
 
 
 def summarize(layers: list, blocked: list = None) -> str:

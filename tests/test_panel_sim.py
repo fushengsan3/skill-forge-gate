@@ -98,7 +98,7 @@ checks = {
     # 需要深度审计时才跑"那套条件触发的残留。那套已经整个删掉了：
     # L5 在**装前闸门**上无条件跑（前置缺失才跳过），所以面板这边
     # 没有"要不要深审"这个开关，多一个参数反而是错的。
-    "queueInstall function": "function queueInstall(name, url)",
+    "queueInstall function": "function queueInstall(name, url, selection)",
     "showQueue function": "function showQueue()",
     "updateQueueBadge function": "function updateQueueBadge()",
     "installQueue init": "installQueue = JSON.parse(localStorage.getItem",

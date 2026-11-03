@@ -133,6 +133,10 @@ def proxy_handler():
     proxy = resolve_proxy()
     if not proxy:
         return None
+    from urllib.parse import urlsplit
+    parsed = urlsplit(proxy if '://' in proxy else 'http://' + proxy)
+    if parsed.username or parsed.password:
+        raise ValueError('隐私模式下不发送代理凭据')
     return urllib.request.ProxyHandler({
         "https": proxy,
         "http": proxy,

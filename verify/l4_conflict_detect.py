@@ -210,6 +210,11 @@ def claude_deep_analysis(report: dict) -> dict:
     if not system_writes:
         return report
 
+    from daemon import privacy
+    if not privacy.allow_remote_audit():
+        report["claude_analysis"] = {"error": "隐私设置禁止上传本机路径，已跳过远程深度分析"}
+        return report
+
     # 凭据判定走 verify/llm_auth.py 那一份 —— 原先这里只认 ANTHROPIC_API_KEY，
     # 于是配第三方中转（Claude Code 默认就是）的机器上，这段深度分析
     # 一次都不会触发。跟 L5 是同一个毛病，同一处修。

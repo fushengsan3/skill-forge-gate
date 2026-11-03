@@ -35,13 +35,13 @@
 <style>
 /* ============ 全内联样式，零外部依赖 ============ */
 :root {
-  --bg: #1a1a2e; --bg-card: #16213e; --bg-input: #0f3460;
-  --text: #e0e0e0; --text-dim: #999; --primary: #667eea;
-  --secondary: #e94560; --accent: #f0c040; --border: #2a2a4a; --radius: 8px;
+  --bg: #f2f5fa; --bg-card: #ffffff; --bg-input: #edf2f8;
+  --text: #182b46; --text-dim: #586b83; --primary: #245bd6;
+  --secondary: #ba4059; --accent: #d49a29; --border: #dce4ef; --radius: 12px;
   --source-jl: #4fc3f7; --source-gh: #f0c040; --source-cs: #ce93d8; --source-ext: #81c784; --source-search: #ff8a65;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+body { font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Trebuchet MS", sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
 .container { max-width: 1040px; margin: 0 auto; padding: 24px 16px; }
 
 /* Header */
@@ -124,11 +124,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 /* 功能板块：一条横带 = 一个板块（标题 + 该板块的高星项目）。
    视觉上刻意比主网格"轻" —— 它是找东西的入口，不是主体内容。 */
 .section-board { margin: 0 0 20px; }
-.section-board .board-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; }
-.section-board .board-title { font-size: 15px; font-weight: 600; }
-.section-board .board-count { font-size: 12px; color: var(--text-dim); }
-.section-board .board-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
-.section-board .board-note { font-size: 12px; color: var(--text-dim); padding: 4px 0; }
+.board-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; }
+.board-title { font-size: 15px; font-weight: 600; }
+.board-count { font-size: 12px; color: var(--text-dim); }
+.board-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.board-note { font-size: 12px; color: var(--text-dim); padding: 4px 0; }
 .btn-sm { padding: 4px 10px; font-size: 11px; }
 
 .update-info { margin-top: 8px; padding: 8px; background: var(--bg-input); border-radius: var(--radius); font-size: 12px; }
@@ -206,6 +206,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .modal-section > h4 { font-size: 11px; color: var(--text-dim); letter-spacing: 0.08em; margin: 0 0 10px; font-weight: 600; }
 .modal-foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
 .modal-hint { font-size: 11px; color: var(--text-dim); line-height: 1.5; margin-top: 8px; }
+.module-modal { max-width: 760px; }
+.module-row { border: 1px solid var(--border); border-radius: 10px; padding: 13px 15px; margin: 10px 0; background: var(--bg); }
+.module-title { font-weight: 650; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.module-path { font-size: 11px; color: var(--text-dim); overflow-wrap: anywhere; margin: 5px 0; }
+.module-desc { font-size: 12px; line-height: 1.5; margin: 6px 0; }
+.module-targets { display: flex; flex-wrap: wrap; gap: 18px; font-size: 12px; margin-top: 9px; }
+.module-targets label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.failure-detail { margin-top: 8px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.failure-detail summary { cursor: pointer; color: var(--accent); }
+.search-status { min-height: 20px; color: var(--text-dim); font-size: 12px; margin: 3px 0 12px; }
 
 /* 后端选择 —— 卡片式单选 */
 .choice-row { display: flex; gap: 10px; }
@@ -243,13 +253,96 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .model-card.disabled { opacity: 0.45; cursor: not-allowed; }
 .model-card.disabled:hover { transform: none; border-color: var(--border); }
 .ai-warning { font-size: 12px; color: var(--accent); background: rgba(240,192,64,0.1); border: 1px solid rgba(240,192,64,0.35); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; line-height: 1.5; }
+
+/* Workspace presentation */
+.container { max-width: 1280px; padding: 32px 28px 80px; }
+.header { padding: 32px 36px; border-radius: 20px; background: #142c4b; color: #f7faff; gap: 28px; box-shadow: 0 12px 32px #142c4b12; }
+.brand-kicker { color: #9ab3d3; font-size: 10px; letter-spacing: 2px; margin-bottom: 18px; }
+.header h1 { display: flex; align-items: center; gap: 10px; font-family: "Trebuchet MS", "Microsoft YaHei", sans-serif; letter-spacing: -1px; font-size: 30px; }
+.brand-mark { display: inline-grid; place-items: center; background: #91bafa; color: #142c4b; font-size: 17px; letter-spacing: -1px; width: 40px; height: 40px; border-radius: 10px 10px 10px 2px; margin-right: 4px; }
+.brand-gate { color: #91bafa; font-weight: 400; }
+.header p { color: #c0cee0; margin-top: 14px; }
+.header .period-chip { background: #213d5d; border-color: #3e5673; color: #dbe7f8; }
+.stats { background: transparent; gap: 0; padding: 0; }
+.stat { min-width: 98px; padding: 8px 20px; border-left: 1px solid #3e5673; text-align: left; }
+.stat-title { color: #b8c9df; margin-bottom: 8px; }
+.stat-value { font-size: 34px; font-family: "Trebuchet MS", sans-serif; }
+.stat-value.new { color: #a8c9ff; }
+.stat-value.update { color: #f6ce84; }
+.stat-value.sources { color: #dbe7f8; max-width: 180px; line-height: 1.8; }
+.toolbar { gap: 9px; }
+.toolbar input, .toolbar select { min-height: 39px; background: #fff; padding: 8px 12px; }
+.toolbar input { max-width: none; min-width: 180px; }
+.btn, .lang-btn { min-height: 34px; border-radius: 8px; padding: 7px 12px; }
+.btn-ghost { background: #fff; border: 1px solid var(--border); color: var(--text-dim); }
+.btn:hover { filter: brightness(.96); }
+.btn:disabled { cursor: wait; opacity: .6; }
+.btn-update { background: #e6efff; color: #2253ab; border: 1px solid #cadbf7; }
+.service-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; border: 1px solid var(--border); background: #fff; border-radius: 12px; padding: 12px 16px; margin: 18px 0 24px; font-size: 12px; }
+.service-dot { width: 7px; height: 7px; border-radius: 50%; background: #ba8135; flex: 0 0 auto; }
+.service-dot.online { background: #258269; box-shadow: 0 0 0 4px #25826910; }
+#service-status { font-weight: 600; }
+#update-status { color: var(--text-dim); flex: 1; }
+#btn-check-updates { margin-left: auto; white-space: nowrap; }
+.card { border: 1px solid var(--border); border-left-width: 3px; padding: 20px; box-shadow: 0 2px 4px #142c4b03; min-width: 0; }
+.card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px #142c4b0c; }
+.card-title { font-size: 16px; overflow-wrap: anywhere; }
+.card-desc { line-height: 1.8; margin-top: 9px; }
+.card-meta { gap: 10px; margin-top: 12px; }
+.card-actions { padding-top: 12px; border-top: 1px solid #edf2f8; }
+.badge-new { background: #e7efff; color: #2457ad; }
+.badge-update { background: #fff0d1; color: #895a0c; }
+.badge-installed { background: #e4f2ec; color: #266a55; }
+.badge { line-height: 1.7; }
+.source-chip.on { color: #182b46; }
+.section-board { margin: 30px 0; }
+.board-head { margin-bottom: 14px; }
+.board-title { font-size: 17px; letter-spacing: .2px; }
+.board-count { color: var(--text-dim); }
+.board-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.board-row .card { width: auto; min-width: 0; display: flex; flex-direction: column; }
+.board-row .card-actions { margin-top: auto; }
+.board-row .card-meta { margin-bottom: 14px; }
+.group-head { margin: 24px 0 8px; padding-bottom: 12px; }
+.group-title { font-size: 16px; }
+.installed-panel, .ext-sources-panel { padding: 22px; border: 1px solid var(--border); }
+.installed-item { gap: 18px; padding: 14px 0; }
+.installed-item > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.installed-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.installed-item .sha, .update-info code { font-family: Consolas, monospace; background: #eaf0f8; }
+.installed-note.stale { color: #89611e; }
+.toast { background: #203f62; box-shadow: 0 6px 24px #142c4b26; max-width: min(440px, 90vw); }
+.modal { box-shadow: 0 24px 64px #142c4b30; }
+:focus-visible { outline: 3px solid #5c92eb; outline-offset: 3px; }
+@media (max-width: 960px) { .board-row { grid-template-columns: repeat(2,minmax(0,1fr)); } .header { padding: 26px; } }
+@media (max-width: 600px) {
+  .container { padding: 14px 12px 72px; }
+  .header { padding: 24px 20px; border-radius: 14px; }
+  .header h1 { font-size: 25px; gap: 7px; }
+  .brand-kicker { letter-spacing: 1px; }
+  .stats { width: 100%; }
+  .stat { flex: 1; min-width: 0; padding: 6px 12px; }
+  .stat:first-child { padding-left: 0; border-left: 0; }
+  .stat-value { font-size: 28px; }
+  .board-row { grid-template-columns: minmax(0,1fr); }
+  .board-head { align-items: flex-start; gap: 8px; flex-direction: column; }
+  .toolbar select { flex: 1; min-width: 120px; }
+  .toolbar input { flex-basis: 100%; }
+  .installed-item { flex-wrap: wrap; }
+  .installed-actions { width: 100%; justify-content: flex-end; }
+  .ext-sources-panel .row { flex-wrap: wrap; }
+  .card-header { flex-wrap: wrap; }
+  #update-status { flex-basis: 100%; order: 3; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } .card:hover { transform: none; } }
+
 </style>
 </head>
 <body>
 <div class="container">
   <div class="header">
     <div>
-      <h1>🔧 Skill Forge Gate</h1>
+      <div class="brand-kicker">SKILL WORKSPACE / 本地技能工作台</div><h1><span class="brand-mark" aria-hidden="true">SF</span> Skill Forge <span class="brand-gate">Gate</span></h1>
       <p id="header-subtitle">本周发现</p>
       <!-- R3：期状态条 —— 显示当前渲染的是哪一期、是否冻结、有没有新一期可推进 -->
       <div id="period-bar" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>
@@ -273,12 +366,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     <button class="btn btn-ghost btn-sm" id="btn-source-filters" data-lang="filter_sources">🔍 数据源筛选</button>
   </div>
 
+  <div class="service-strip" role="status" aria-live="polite">
+    <span class="service-dot" id="service-dot"></span>
+    <span id="service-status" data-lang="service_connecting">正在连接本地服务…</span>
+    <span id="update-status"></span>
+    <button class="btn btn-primary" id="btn-check-updates" data-lang="check_updates">检查更新</button>
+  </div>
+
   <!-- 外部数据源管理面板 -->
   <div class="ext-sources-panel" id="ext-sources-panel">
     <h3 data-lang="ext_sources_title">外部数据源管理</h3>
     <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px" data-lang="ext_sources_desc">添加 GitHub 仓库或 JSON API 地址以引入更多 skill 数据</p>
     <div class="row">
-      <input type="text" id="ext-url" placeholder="返回 JSON 列表的地址（GitHub 仓库主页是 HTML，导不进来）">
+      <input type="text" id="ext-url" placeholder="GitHub 仓库主页或返回 JSON 列表的 HTTPS 地址">
       <input type="text" id="ext-label" placeholder="标签（可选）" style="max-width:140px">
       <button class="btn btn-primary btn-sm" id="btn-add-source" data-lang="add">添加</button>
     </div>
@@ -306,18 +406,20 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
   <!-- 主筛选 -->
   <div class="toolbar">
-    <select id="filter-category"><option value="all" data-lang-opt="all_cat">全部分类</option></select>
-    <select id="filter-status">
+    <select id="filter-category" aria-label="分类 / Category"><option value="all" data-lang-opt="all_cat">全部分类</option></select>
+    <select id="filter-status" aria-label="状态 / Status">
       <option value="all" data-lang-opt="all_status">全部状态</option>
       <option value="new">🆕 <span data-lang-opt="new_skill">新 skill</span></option>
       <option value="update_available">🔄 <span data-lang-opt="update_skill">有更新</span></option>
     </select>
-    <select id="filter-sort">
+    <select id="filter-sort" aria-label="排序 / Sort">
       <option value="score" data-lang-opt="sort_score">按综合评分</option>
       <option value="stars" data-lang-opt="sort_stars">按 Star 数</option>
     </select>
-    <input type="text" id="search-input" data-lang-placeholder="search_placeholder">
+    <input type="search" aria-label="搜索技能 / Search skills" id="search-input" data-lang-placeholder="search_placeholder">
+    <button class="btn btn-ghost" id="btn-ai-search" type="button" title="从 GitHub 和已保存的外部数据源检索，再用通用功能标签匹配">✨ AI 在线搜索</button>
   </div>
+  <div id="search-status" class="search-status" role="status" aria-live="polite"></div>
 
   <!-- 功能板块高星榜（学术 / 文本 / 代码）。
        放在主网格**上面**：它是"我想找这类工具"的入口，而下面的网格回答的是
@@ -337,6 +439,29 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
   <button id="btn-queue"><span id="queue-count">0</span></button>
 </div>
 <div class="toast-container" id="toast-container"></div>
+
+<div class="modal-overlay" id="module-modal" role="dialog" aria-modal="true" aria-labelledby="module-title">
+  <div class="modal module-modal">
+    <div class="modal-head"><h3 id="module-title">选择版本与模块</h3><button class="btn btn-ghost btn-sm" id="btn-close-modules" aria-label="关闭">✕</button></div>
+    <div class="modal-body"><div id="module-intro" class="modal-hint"></div><div id="module-list"></div></div>
+    <div class="modal-foot"><button class="btn btn-ghost" id="btn-cancel-modules">取消</button><button class="btn btn-primary" id="btn-confirm-modules">加入安装队列</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="version-modal" role="dialog" aria-modal="true" aria-labelledby="version-title">
+  <div class="modal module-modal">
+    <div class="modal-head"><h3 id="version-title">历史版本与回退</h3><button class="btn btn-ghost btn-sm" id="btn-close-version" aria-label="关闭">✕</button></div>
+    <div class="modal-body"><div id="version-status" class="modal-hint"></div><div id="version-list"></div></div>
+    <div class="modal-foot"><button class="btn btn-ghost" id="btn-dismiss-version">关闭</button></div>
+  </div>
+</div>
+<div class="modal-overlay" id="install-result-modal" role="dialog" aria-modal="true" aria-labelledby="install-result-title">
+  <div class="modal module-modal">
+    <div class="modal-head"><h3 id="install-result-title">安装结果</h3><button class="btn btn-ghost btn-sm" id="btn-close-install-result" aria-label="关闭">✕</button></div>
+    <div class="modal-body" id="install-result-body"></div>
+    <div class="modal-foot"><button class="btn btn-ghost" id="btn-dismiss-install-result">关闭</button><button class="btn btn-primary" id="btn-continue-install">继续安装失败项</button></div>
+  </div>
+</div>
 
 <!-- ============ R6/R9：设置弹窗 ============ -->
 <div class="modal-overlay" id="settings-modal">
@@ -360,8 +485,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         <div class="model-list" id="model-list"></div>
         <div class="modal-hint" data-lang="model_hint"></div>
 
-        <h4 style="margin-top:18px" data-lang="sec_prompt">翻译提示词</h4>
-        <div class="model-list" id="prompt-list"></div>
+        <div class="model-list" id="prompt-list" hidden></div>
         <div class="modal-hint" data-lang="prompt_hint"></div>
       </div>
 
@@ -414,13 +538,14 @@ const LANG = {
     new_found: '新发现', updatable: '可更新', sources: '数据源',
     all_cat: '全部分类', all_status: '全部状态', new_skill: '新 skill', update_skill: '有更新',
     sort_score: '按综合评分', sort_stars: '按 Star 数', search_placeholder: '搜索...',
-    no_results: '本周无新发现', no_updates: '所有 skill 均无可用更新',
+    no_results: '没有匹配的技能', no_updates: '试试其他关键词，或调整分类与状态筛选。',
     ext_sources: '📂 外部数据源', filter_sources: '🔍 数据源筛选', add: '添加', save: '💾 保存', fetch_now: '🔄 立即拉取',
     ext_sources_title: '外部数据源管理', ext_sources_desc: '添加 GitHub 仓库或 JSON API 地址以引入更多 skill 数据',
     ext_sources_file: '这份列表存在浏览器本地；点「保存」会同时写进',
     ext_sources_file2: '，周度扫描时守护进程读的是那个文件。',
     view_detail: '查看详情', install_btn: '📦 一键安装', update_btn: '🔄 更新到最新',
     reinstall_btn: '🔄 重装', queued: '已加入队列 ✓',
+    service_connecting: '正在连接本地服务…', service_online: '本地服务已连接', service_offline: '本地服务未连接 · 可浏览已保存的内容', updating: '正在更新…',
     checking_updates: '正在检查更新…', check_updates: '检查更新',
     install_toast: '已加入安装队列',
     // 原先写「下次启动 Claude Code 时将提示安装」—— 那是假的：没有任何启动钩子
@@ -457,14 +582,14 @@ const LANG = {
     // R6/R9 设置
     settings: '设置', close: '关闭',
     sec_translate: '翻译后端', sec_model: 'AI 模型', sec_keys: '密钥',
-    backend_google: 'Google 翻译', backend_google_desc: '免费，无需密钥。当前默认。',
-    backend_ai: 'AI 模型', backend_ai_desc: '质量更好，按量计费。需要 AI 密钥。',
-    translate_hint: 'AI 后端会把描述发给所选模型翻译，仅在 Google 不可用或需要更专业的术语处理时使用。',
-    model_hint: '模型清单读取自你的 Claude Code 配置（~/.claude/settings.json）。',
+    backend_google: '本地排序', backend_google_desc: '不调用模型；在线搜索仍会访问公开数据源。',
+    backend_ai: 'DeepSeek', backend_ai_desc: '模块翻译和 AI 模糊搜索共用一个密钥，按服务商计费。',
+    translate_hint: '仅发送经过过滤的公开仓库模块简介或通用功能标签；不发送本机路径、技能正文或原始搜索内容。',
+    model_hint: '当前仅接入 DeepSeek 官方接口；其他商业模型的接口已预留，需单独接入和授权。',
     model_current: '当前使用', model_none: '读不到模型清单',
     keys_hint: '密钥存放在 Windows 凭据管理器，由系统按当前用户加密。它不会经过这个页面。',
-    key_github: 'GitHub 令牌', key_github_sub: '解开 API 限流：60 次/小时 → 5000 次/小时',
-    key_ai: 'AI 密钥', key_ai_sub: '供 AI 翻译后端使用',
+    key_github: 'GitHub 令牌', key_github_sub: '隐私模式下不用于网络请求',
+    key_ai: 'DeepSeek 密钥', key_ai_sub: '翻译与模糊搜索共用，仅发往 DeepSeek 官方接口认证',
     key_set: '设置', key_clear: '清除', key_configured: '已配置', key_missing: '未配置',
     key_opened: '已弹出输入框，请在窗口中输入', key_cancelled: '已取消', key_stored: '已保存到凭据管理器',
     key_deleted: '已清除', key_busy: '已有一个输入框开着',
@@ -483,12 +608,13 @@ const LANG = {
     new_found: 'New', updatable: 'Updates', sources: 'Sources',
     all_cat: 'All Categories', all_status: 'All Status', new_skill: 'New skill', update_skill: 'Has Update',
     sort_score: 'By Score', sort_stars: 'By Stars', search_placeholder: 'Search...',
-    no_results: 'Nothing new this week', no_updates: 'All skills are up to date',
+    no_results: 'No matching skills', no_updates: 'Try another keyword or adjust the filters.',
     ext_sources: '📂 External Sources', filter_sources: '🔍 Source Filter', add: 'Add', save: '💾 Save', fetch_now: '🔄 Fetch',
     ext_sources_title: 'External Data Sources', ext_sources_desc: 'Add GitHub repos or JSON API URLs to import more skills',
     ext_sources_file: 'Config:',
     view_detail: 'View', install_btn: '📦 Install', update_btn: '🔄 Update',
     reinstall_btn: '🔄 Reinstall', queued: 'Queued ✓',
+    service_connecting: 'Connecting to local service…', service_online: 'Local service connected', service_offline: 'Local service offline · Saved content available', updating: 'Updating…',
     checking_updates: 'Checking for updates…', check_updates: 'Check updates',
     install_toast: 'Added to queue',
     install_hint: 'Ask Claude Code to proceed with the install queue',
@@ -520,14 +646,14 @@ const LANG = {
     new_period_ready: 'New period available', advance: 'Advance to next period', periods_truncated: '{n} older periods not included',
     settings: 'Settings', close: 'Close',
     sec_translate: 'Translation backend', sec_model: 'AI model', sec_keys: 'Credentials',
-    backend_google: 'Google Translate', backend_google_desc: 'Free, no key needed. Current default.',
-    backend_ai: 'AI model', backend_ai_desc: 'Better quality, pay per use. Needs an AI key.',
-    translate_hint: 'The AI backend sends descriptions to the selected model. Use it when Google is unavailable or you need better technical terminology.',
-    model_hint: 'The model list is read from your Claude Code config (~/.claude/settings.json).',
+    backend_google: 'Local ranking', backend_google_desc: 'No model calls; online search still contacts public sources.',
+    backend_ai: 'DeepSeek', backend_ai_desc: 'One key for module translation and AI search; provider charges apply.',
+    translate_hint: 'Only filtered public module descriptions or general capability tags are sent.',
+    model_hint: 'Only the official DeepSeek API is enabled; other providers require separate integration and authorization.',
     model_current: 'in use', model_none: 'No models found',
     keys_hint: 'Keys live in Windows Credential Manager, encrypted per-user by the OS. They never pass through this page.',
-    key_github: 'GitHub token', key_github_sub: 'Lifts the API limit: 60/hr → 5000/hr',
-    key_ai: 'AI key', key_ai_sub: 'Used by the AI translation backend',
+    key_github: 'GitHub token', key_github_sub: 'Not used for network requests in privacy mode',
+    key_ai: 'DeepSeek key', key_ai_sub: 'Shared by translation and search; sent only to the official DeepSeek API',
     key_set: 'Set', key_clear: 'Clear', key_configured: 'Configured', key_missing: 'Not set',
     key_opened: 'Input dialog opened — type in the window', key_cancelled: 'Cancelled', key_stored: 'Saved to Credential Manager',
     key_deleted: 'Cleared', key_busy: 'A dialog is already open',
@@ -640,9 +766,36 @@ function bridgeFetch(path, options) {
 let installQueue = [];
 let installedSkills = new Set();
 let allSkills = [];
+let onlineResults = null;
+let semanticRank = null;
+let semanticRequest = 0;
+let previewBusy = new Set();
+let previewSelection = null;
+let previewRequest = 0;
+let queueSaveChain = Promise.resolve();
+let installingQueue = false;
 let bridgeAvailable = false;
+let availableUpdates = Object.create(null);
+let completedUpdates = new Set();
+let updatesChecking = false;
+let updatingSkills = new Set();
+function setServiceState(online) {
+  bridgeAvailable = online;
+  document.getElementById('service-status').textContent = t(online ? 'service_online' : 'service_offline');
+  document.getElementById('service-dot').classList.toggle('online', online);
+}
+function refreshUpdateViews() {
+  var names = new Set(Object.keys(availableUpdates));
+  allSkills.forEach(function(s) { if (s.status === 'update_available' && !completedUpdates.has(s.name)) names.add(s.name); });
+  document.getElementById('stat-update').textContent = names.size;
+  renderSkills();
+  renderSections();
+  var installed = localInstalled();
+  if (installed) renderInstalledList(installed, !bridgeAvailable);
+}
 let activeSourceFilters = {};
 let externalSources = [];
+let externalSourceRevision = 0;
 
 // ============================================================
 // 期（period）—— R2 分组 + R3 冻结
@@ -716,6 +869,11 @@ function legacySkills() {
 }
 
 function flattenData() {
+  onlineResults = null;
+  semanticRank = null;
+  semanticRequest++;
+  document.getElementById('btn-ai-search').disabled = false;
+  document.getElementById('search-status').textContent = '';
   var period = PERIODS.length ? PERIODS[currentIndex()] : null;
   allSkills = period ? materialize(period) : legacySkills();
 
@@ -934,7 +1092,7 @@ function renderInstalledList(skills, stale) {
       box.appendChild(mkEl('span', 'sha', s.installed_sha));
     }
     box.appendChild(mkEl('div', 'meta',
-      (s.installed_at ? String(s.installed_at).slice(0, 10) : '') + ' · ' + (s.type || '')
+      (s.installed_at ? String(s.installed_at).slice(0, 10) : '') + ' · ' + (s.tool === 'codex' ? 'Codex 独立版本' : 'Claude Code') + ' · ' + (s.type || '')
       // D3：monorepo 子 skill 的来源位置。根目录装的是空，就不显示。
       + (s.subpath ? ' · ' + s.subpath : '')));
 
@@ -969,10 +1127,22 @@ function renderInstalledList(skills, stale) {
       selfTag.title = t('is_self_hint');
       item.appendChild(selfTag);
     } else {
+      var actions = mkEl('div', 'installed-actions');
+      if (s.url || s.type !== 'local') {
+        var updateBtn = mkEl('button', 'btn btn-update btn-sm', updatingSkills.has(s.name)
+          ? t('updating') : (availableUpdates[s.tool === 'codex' ? 'codex:' + s.name : s.name] ? t('update_btn') : t('reinstall_btn')));
+        updateBtn.disabled = updatingSkills.has(s.name);
+        updateBtn.addEventListener('click', function() { updateSkill(s.name, updateBtn, s.tool); });
+        actions.appendChild(updateBtn);
+        var versionBtn = mkEl('button', 'btn btn-ghost btn-sm', '版本');
+        versionBtn.addEventListener('click', function() { openVersionHistory(s.name, s.tool || 'claude'); });
+        actions.appendChild(versionBtn);
+      }
+      item.appendChild(actions);
       var unBtn = mkEl('button', 'btn-uninstall', '✕');
       unBtn.title = t('uninstall');
-      unBtn.addEventListener('click', function() { uninstallSkill(s.name); });
-      item.appendChild(unBtn);
+      unBtn.addEventListener('click', function() { uninstallSkill(s.name, s.tool); });
+      actions.appendChild(unBtn);
     }
 
     frag.appendChild(item);
@@ -989,6 +1159,7 @@ function applyInstalled(skills, stale) {
   updateInstalledCount(skills.length);
   renderInstalledList(skills, !!stale);
   renderSkills();  // 卡片上的安装状态跟着刷新
+  renderSections();
 }
 
 function loadInstalled() {
@@ -1021,17 +1192,24 @@ function updateInstalledCount(n) {
   el.style.display = n > 0 ? 'inline' : 'none';
 }
 
-function uninstallSkill(name) {
+function uninstallSkill(name, tool) {
   var msg = (currentLang === 'zh' ? '确定要卸载 ' : 'Uninstall ') + name + '?';
   if (!confirm(msg)) return;
   bridgeFetch('uninstall', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({name: name})
+    body: JSON.stringify(tool === 'codex' ? {name:name, tool:'codex'} : {name:name})
   })
     .then(function(r) { return r.json(); })
     .then(function(res) {
-      if (res.ok) { loadInstalled(); showToast('✅ ' + name + ' ' + (currentLang === 'zh' ? '已卸载' : 'uninstalled')); }
+      if (res.ok) {
+        var key = tool === 'codex' ? 'codex:' + name : name;
+        delete availableUpdates[key]; completedUpdates.delete(key);
+        loadInstalled();
+        refreshUpdateViews();
+        showToast('✅ ' + name + ' ' + (currentLang === 'zh' ? '已卸载' : 'uninstalled'));
+        if (res.codex_sync && !res.codex_sync.ok) alert(codexSyncMessage(res));
+      }
       else { showToast('⚠ ' + (currentLang === 'zh' ? '卸载失败：' : 'Failed: ') + (res.error || 'unknown')); }
     })
     // R4-d：卸载是真的要动文件系统的操作，bridge 不在线时**只能**明说做不到。
@@ -1064,6 +1242,15 @@ function loadExtSources() {
     externalSources = stored ? JSON.parse(stored) : [];
   } catch(e) { externalSources = []; }
   renderExtSourceList();
+  if (bridgeAvailable) {
+    var revision = externalSourceRevision;
+    bridgeFetch('ext-sources').then(function(r) { return r.json(); }).then(function(data) {
+      if (revision !== externalSourceRevision || !Array.isArray(data.sources)) return;
+      externalSources = data.sources;
+      try { localStorage.setItem('skill-forge-ext-sources', JSON.stringify(externalSources)); } catch(e) {}
+      renderExtSourceList();
+    }).catch(function() { showToast('⚠ 无法读取已保存的外部数据源'); });
+  }
 }
 
 function renderExtSourceList() {
@@ -1098,41 +1285,68 @@ function addExternalSource() {
   var url = document.getElementById('ext-url').value.trim();
   var label = document.getElementById('ext-label').value.trim();
   if (!url) return;
-  if (!/^https?:\/\//.test(url)) { alert('请输入有效的 URL (https://...)'); return; }
+  try {
+    var parsed = new URL(url);
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error();
+  } catch(e) { alert('请输入不含凭据或查询参数的 HTTPS 地址'); return; }
   externalSources.push({ url: url, label: label || url.split('/').pop(), added_at: new Date().toISOString() });
+  externalSourceRevision++;
   document.getElementById('ext-url').value = '';
   document.getElementById('ext-label').value = '';
   renderExtSourceList();
   showToast('✅ 外部数据源已添加（需保存后生效）');
 }
 
-function removeExtSource(i) { externalSources.splice(i, 1); renderExtSourceList(); }
+function removeExtSource(i) { externalSources.splice(i, 1); externalSourceRevision++; renderExtSourceList(); }
 
-function saveExtSources() {
-  localStorage.setItem('skill-forge-ext-sources', JSON.stringify(externalSources));
-  // 同时写入文件（通过桥接）
-  if (bridgeAvailable) {
-    bridgeFetch('ext-sources', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ sources: externalSources })
-    }).catch(function(){});
+function saveExtSources(silent) {
+  try { localStorage.setItem('skill-forge-ext-sources', JSON.stringify(externalSources)); }
+  catch(e) { showToast('⚠ 浏览器无法保存来源列表'); return Promise.resolve(false); }
+  if (!bridgeAvailable) {
+    showToast('⚠ 已保存在浏览器；本地服务离线，尚未同步');
+    return Promise.resolve(false);
   }
-  showToast('💾 外部数据源已保存');
+  return bridgeFetch('ext-sources', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({sources:externalSources})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.ok) throw new Error(data.error || '保存失败');
+    if (!silent) showToast('💾 外部数据源已保存');
+    return true;
+  }).catch(function(e) { showToast('⚠ 来源保存失败：' + e.message); return false; });
 }
 
 function fetchExtSources() {
-  saveExtSources();
-  if (bridgeAvailable) {
-    bridgeFetch('ext-sources/fetch', { method: 'POST' })
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        showToast('✅ 已拉取 ' + (d.count || 0) + ' 个 skill');
-      })
-      .catch(function() { showToast('⚠ 拉取失败，请检查守护进程是否运行'); });
-  } else {
-    showToast('⚠ 队列桥接不可用，请在守护进程运行时操作');
-  }
+  saveExtSources(true).then(function(saved) {
+    if (!saved) return;
+    return bridgeFetch('ext-sources/fetch', {method:'POST'}).then(function(r) { return r.json(); })
+      .then(function(data) {
+        var skills = Array.isArray(data.skills) ? data.skills : [];
+        var seen = new Set(allSkills.map(function(s) { return s.url || s.full_name || s.name; }));
+        skills.forEach(function(skill) {
+          var id = skill.url || skill.full_name || skill.name;
+          if (!id || seen.has(id)) return;
+          seen.add(id);
+          var row = Object.assign({}, skill, {source:'external', _category:skill.category || '其他', _isNew:true});
+          if (row.score == null) row.score = (row.stars || 0) * 0.7 + (row.installs || 0) * 0.3;
+          allSkills.push(row);
+        });
+        if (skills.length) {
+          onlineResults = null;
+          semanticRank = null;
+          activeSourceFilters.external = true;
+          var categories = document.getElementById('filter-category');
+          if (![...categories.options].some(function(o) { return o.value === '其他'; })) categories.appendChild(new Option('其他', '其他'));
+          buildSourceFilters(); renderSkills();
+        }
+        var errors = Array.isArray(data.errors) ? data.errors : [];
+        if (!data.ok || errors.length) {
+          showToast('⚠ 部分或全部来源拉取失败', errors.map(function(e) { return (e.label || '来源') + '：' + (e.error || '未知错误'); }).join('；') || data.error || '未知错误');
+        } else {
+          showToast('✅ 已拉取 ' + (data.count || 0) + ' 个 skill');
+        }
+      }).catch(function() { showToast('⚠ 拉取失败，请检查本地服务是否运行'); });
+  });
 }
 
 // ============================================================
@@ -1197,10 +1411,11 @@ function renderSkills() {
   var sortBy = document.getElementById('filter-sort').value;
   var search = document.getElementById('search-input').value.toLowerCase();
 
-  var filtered = allSkills.filter(function(s) {
+  var filtered = (onlineResults === null ? allSkills : onlineResults).filter(function(s) {
     if (catFilter !== 'all' && s._category !== catFilter) return false;
     if (statusFilter !== 'all' && s.status !== statusFilter) return false;
-    if (!activeSourceFilters[s.source]) return false;
+    if (onlineResults === null && !activeSourceFilters[s.source]) return false;
+    if (semanticRank) return semanticRank.has(s);
     if (search && (s.name || '').toLowerCase().indexOf(search) === -1
         && (s.description || '').toLowerCase().indexOf(search) === -1) return false;
     return true;
@@ -1208,6 +1423,7 @@ function renderSkills() {
 
   // 排序 — 按选定指标 + 同分时用另一指标打破平局
   filtered.sort(function(a, b) {
+    if (semanticRank) return semanticRank.get(a) - semanticRank.get(b);
     var primary, secondary;
     if (sortBy === 'stars') {
       primary = (b.stars || 0) - (a.stars || 0);
@@ -1220,11 +1436,17 @@ function renderSkills() {
   });
 
   var grid = document.getElementById('skills-grid');
+  var sections = document.getElementById('sections-panel');
+  if (sections) sections.style.display = semanticRank ? 'none' : '';
   var empty = document.getElementById('empty-state');
 
   if (filtered.length === 0) {
     grid.innerHTML = '';
     empty.style.display = 'block';
+    var emptyTitle = empty.querySelector('[data-lang="no_results"]');
+    var emptySub = empty.querySelector('[data-lang="no_updates"]');
+    if (emptyTitle) emptyTitle.textContent = semanticRank ? (currentLang === 'zh' ? '没有找到匹配的技能' : 'No matching skills') : t('no_results');
+    if (emptySub) emptySub.style.display = semanticRank ? 'none' : '';
   } else {
     empty.style.display = 'none';
     try {
@@ -1234,7 +1456,7 @@ function renderSkills() {
       // R2：同一页分两组 —— 本期新增 / 更早发现。
       // 口径是"首次出现在哪一期"，不是"距今多少天"，
       // 所以就算中间跳了一周没扫描，组名和日期也依然是真的。
-      var groups = [
+      var groups = onlineResults !== null ? [{label:currentLang === 'zh' ? '线上搜索结果' : 'Online search results', items:filtered}] : [
         { label: t('this_scan'), items: filtered.filter(function(s) { return s._isNew; }) },
         { label: t('earlier'),   items: filtered.filter(function(s) { return !s._isNew; }) }
       ];
@@ -1254,6 +1476,44 @@ function renderSkills() {
       console.error('Skill Forge Gate panel error:', e);
     }
   }
+}
+
+function searchWithAI() {
+  var query = document.getElementById('search-input').value.trim();
+  var status = document.getElementById('search-status');
+  var button = document.getElementById('btn-ai-search');
+  if (!query) { status.textContent = currentLang === 'zh' ? '先描述你需要什么支持。' : 'Describe what you need first.'; return; }
+  var requestId = ++semanticRequest;
+  button.disabled = true;
+  status.textContent = currentLang === 'zh' ? '正在从 GitHub 和已保存的数据源检索…' : 'Searching GitHub and saved sources…';
+  bridgeFetch('ai-search', {method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({query:query})})
+    .then(function(r) { return r.json(); })
+    .then(function(result) {
+      if (requestId !== semanticRequest) return;
+      if (!result.ok || !Array.isArray(result.skills)) throw new Error(result.error || '搜索失败');
+      onlineResults = result.skills.map(function(s) {
+        var item = Object.assign({}, s);
+        item._category = item.category || '其他';
+        item.source = item.source || 'search';
+        return item;
+      });
+      semanticRank = new Map();
+      onlineResults.forEach(function(item, rank) { semanticRank.set(item, rank); });
+      document.getElementById('filter-category').value = 'all';
+      document.getElementById('filter-status').value = 'all';
+      status.textContent = '线上检索 · ' + (result.mode === 'ai' ? 'AI 匹配' : '本地排序') + ' · ' + onlineResults.length + ' 项'
+                         + (result.warning ? ' · ' + result.warning : '');
+      renderSkills();
+    })
+    .catch(function(e) {
+      if (requestId !== semanticRequest) return;
+      onlineResults = [];
+      semanticRank = new Map();
+      status.textContent = (currentLang === 'zh' ? '搜索未完成：' : 'Search failed: ') + e.message;
+      renderSkills();
+    })
+    .finally(function() { if (requestId === semanticRequest) button.disabled = false; });
 }
 
 // ============================================================
@@ -1288,8 +1548,13 @@ function mkEl(tag, className, text) {
 }
 
 function skillCard(s) {
+  var matchingInstalled = (localInstalled() || []).filter(function(x) { return x.name === s.name; });
+  var cardTool = matchingInstalled.some(function(x) { return x.tool !== 'codex'; }) ? 'claude' :
+                 (matchingInstalled.length ? 'codex' : 'claude');
+  var cardKey = cardTool === 'codex' ? 'codex:' + s.name : s.name;
+  if (availableUpdates[cardKey]) s = Object.assign({}, s, availableUpdates[cardKey]);
   var isNew = s.status === 'new';
-  var isUpdate = s.status === 'update_available';
+  var isUpdate = !completedUpdates.has(cardKey) && (s.status === 'update_available' || !!availableUpdates[cardKey]);
   var isInstalled = installedSkills.has(s.name);
   var inQueue = installQueue.some(function(q) { return q.name === s.name; });
   var srcCfg = SOURCE_CONFIG[s.source] || SOURCE_CONFIG['github-topic'];
@@ -1436,13 +1701,19 @@ function skillCard(s) {
     actions.appendChild(a);
   }
   var btn = mkEl('button', btnClass, btnText);
-  if (btnAction === 'queued') btn.disabled = true;
+  if (btnAction === 'queued' || updatingSkills.has(name)) btn.disabled = true;
+  if (updatingSkills.has(name)) btn.textContent = t('updating');
   // R8-4：不用内联 onclick，直接挂监听器 —— 彻底消除 JS 字符串上下文
   btn.addEventListener('click', function() {
-    if (btnAction === 'update' || btnAction === 'reinstall') updateSkill(name, btn);
-    else queueInstall(name, link);
+    if (btnAction === 'update' || btnAction === 'reinstall') updateSkill(name, btn, cardTool);
+    else beginInstallPreview(name, link);
   });
   actions.appendChild(btn);
+  if (isInstalled && link) {
+    var modulesBtn = mkEl('button', 'btn btn-ghost', currentLang === 'zh' ? '查看模块' : 'View modules');
+    modulesBtn.addEventListener('click', function() { beginInstallPreview(name, link); });
+    actions.appendChild(modulesBtn);
+  }
   card.appendChild(actions);
 
   return card;
@@ -1451,13 +1722,109 @@ function skillCard(s) {
 // ============================================================
 // 安装队列
 // ============================================================
-function queueInstall(name, url) {
+function beginInstallPreview(name, url, forQueued) {
+  if (installingQueue) { showToast('请等待当前安装完成'); return; }
+  if ((!forQueued && installQueue.some(function(q) { return q.name === name; })) || previewBusy.has(name)) return;
+  previewBusy.add(name);
+  var request = ++previewRequest;
+  document.getElementById('module-intro').textContent = '正在读取 ' + name + ' 的模块和工具版本，仓库较大时可能需要一些时间…';
+  document.getElementById('module-list').innerHTML = '';
+  document.getElementById('btn-confirm-modules').disabled = true;
+  document.getElementById('module-modal').classList.add('open');
+  bridgeFetch('preview-install', {method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:name, url:url})})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (request !== previewRequest) return;
+      if (!data.ok || !Array.isArray(data.modules)) throw new Error(data.error || '无法预览');
+      previewSelection = {name:name, url:url, branch:data.branch, sha:data.sha, modules:data.modules, translation_warning:data.translation_warning, forQueued:!!forQueued};
+      renderModulePreview();
+      document.getElementById('btn-confirm-modules').disabled = false;
+    })
+    .catch(function(e) {
+      if (request === previewRequest) document.getElementById('module-intro').textContent = '无法读取安装模块：' + e.message + '。请检查网络后重试。';
+    })
+    .finally(function() { previewBusy.delete(name); });
+}
+
+function renderModulePreview() {
+  var data = previewSelection;
+  var intro = document.getElementById('module-intro');
+  intro.textContent = data.name + ' · ' + data.branch + ' · ' + String(data.sha).slice(0, 8)
+    + '。请选择技能模块和目标工具；插件、MCP 与 Hook 需使用各工具的插件管理器安装。';
+  var list = document.getElementById('module-list'); list.innerHTML = '';
+  var inputs = [];
+  data.modules.forEach(function(m) {
+    var card = mkEl('div', 'module-row');
+    var header = mkEl('div', 'module-title');
+    header.appendChild(mkEl('span', null, m.name));
+    header.appendChild(mkEl('span', 'badge', m.platform === 'codex' ? 'Codex 专用' :
+      m.platform === 'claude' ? 'Claude Code 专用' : m.platform === 'other' ? '其他工具专用' : '通用版本'));
+    card.appendChild(header);
+    card.appendChild(mkEl('div', 'module-path', m.path === '.' ? '仓库根目录' : m.path));
+    card.appendChild(mkEl('div', 'module-desc', m.description_zh || m.description || '暂无功能说明'));
+    if (m.description_zh && m.description && m.description_zh !== m.description) {
+      var original = mkEl('details', 'modal-hint');
+      original.appendChild(mkEl('summary', null, '查看原文'));
+      original.appendChild(mkEl('div', null, m.description));
+      card.appendChild(original);
+    }
+    var targets = mkEl('div', 'module-targets');
+    ['claude', 'codex'].forEach(function(tool) {
+      var label = mkEl('label'); var input = document.createElement('input');
+      input.type = 'checkbox'; input.value = tool;
+      var targetState = (m.targets || {})[tool] || 'available';
+      input.disabled = m.platform === 'other' || (m.platform !== 'generic' && m.platform !== tool)
+                       || (tool === 'codex' && !m.codex_supported) || targetState === 'exists';
+      var specialized = data.modules.some(function(other) { return other.name === m.name && other.platform === tool; });
+      input.checked = !input.disabled && (m.platform === tool || (tool === 'claude' && m.platform === 'generic' && !specialized));
+      input.addEventListener('change', function() {
+        if (input.checked) inputs.forEach(function(x) {
+          if (x.input !== input && x.tool === tool && x.module.name.toLowerCase() === m.name.toLowerCase()) x.input.checked = false;
+        });
+      });
+      inputs.push({input:input, module:m, tool:tool});
+      label.appendChild(input); label.appendChild(document.createTextNode((tool === 'claude' ? 'Claude Code' : 'Codex')
+        + (targetState === 'exists' ? '（已存在）' : targetState === 'sync-link' ? '（替换共享链接，保留备份）' : '')));
+      targets.appendChild(label);
+    });
+    if (m.platform === 'other') targets.appendChild(mkEl('span', 'modal-hint', '此版本属于其他工具，暂不能安装到这两个目标。'));
+    card.appendChild(targets); list.appendChild(card);
+  });
+  list.appendChild(mkEl('div', 'modal-hint', '只选择 Claude Code 时，已启用的 Codex 自动同步仍会生效；单独选择 Codex 版本会独立安装。'));
+  if (data.translation_warning) list.appendChild(mkEl('div', 'modal-hint', data.translation_warning));
+  data.inputs = inputs;
+}
+
+function confirmModulePreview() {
+  if (!previewSelection) return;
+  var selected = previewSelection.inputs.filter(function(x) { return x.input.checked && !x.input.disabled; })
+    .map(function(x) { return {path:x.module.path, target:x.tool}; });
+  if (!selected.length) { alert('请选择至少一个模块和目标工具。'); return; }
+  var preview = previewSelection;
+  document.getElementById('module-modal').classList.remove('open');
+  previewSelection = null;
+  if (preview.forQueued) {
+    var queued = installQueue.find(function(q) { return q.name === preview.name; });
+    if (queued) {
+      Object.assign(queued, {branch:preview.branch, preview_sha:preview.sha, selected_modules:selected, needs_preview:false});
+      saveQueue(); triggerInstall();
+    }
+  } else {
+    queueInstall(preview.name, preview.url, {branch:preview.branch, preview_sha:preview.sha, selected_modules:selected});
+  }
+}
+
+function queueInstall(name, url, selection) {
+  if (installingQueue) { showToast('请等待当前安装完成'); return; }
   if (installQueue.some(function(q) { return q.name === name; })) return;
   // 排队的时候**什么都还没检查过**。原先这里写的是 trust_level: 'verified'/'unverified'，
   // 那个值只是把"来源是否在可信列表里"抄了一遍，安装流程压根不看它 ——
   // 界面上显示"已审核"而实际没有任何审核。现在如实写 'pending'：
   // 真正的预检（L1–L5）发生在装的时候，结果随安装响应回来。
-  installQueue.push({ name: name, url: url, added_at: new Date().toISOString(), trust_level: 'pending' });
+  var item = { name: name, url: url, added_at: new Date().toISOString(), trust_level: 'pending' };
+  if (selection && Array.isArray(selection.selected_modules)) Object.assign(item, selection);
+  installQueue.push(item);
   saveQueue();
   updateQueueBadge();
   renderSkills();
@@ -1465,6 +1832,7 @@ function queueInstall(name, url) {
 }
 
 function showQueue() {
+  if (installingQueue) { showToast('请等待当前安装完成'); return; }
   if (installQueue.length === 0) { alert(t('queue_empty')); return; }
   // D3：`added_at` 以前只写不读。排队列表里显示"什么时候加进来的" ——
   // 数据一直躺在队列项里，只是没人看。回答的是"这队列放了多久了"。
@@ -1501,50 +1869,22 @@ function showQueue() {
 }
 
 function triggerInstall() {
+  if (installingQueue || !installQueue.length) return;
+  if (updatingSkills.size) { showToast('请等待更新完成后再安装'); return; }
+  var needsPreview = installQueue.find(function(q) { return !Array.isArray(q.selected_modules) || q.needs_preview; });
+  if (needsPreview) { beginInstallPreview(needsPreview.name, needsPreview.url, true); return; }
+  installingQueue = true;
   showToast((currentLang === 'zh' ? '正在安装 ' : 'Installing ') + installQueue.length + (currentLang === 'zh' ? ' 个 skill...' : ' skills...'));
-  bridgeFetch('install', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({}) })
+  saveQueue().then(function() {
+    return bridgeFetch('install', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({}) });
+  })
     .then(function(r) { return r.json(); })
     .then(function(res) {
       if (res.ok) {
-        var msg = (currentLang === 'zh' ? '安装完成：' : 'Done: ') + res.success + '/' + res.processed + (currentLang === 'zh' ? ' 成功' : ' OK');
-        if (res.failed > 0) {
-          msg += ', ' + res.failed + (currentLang === 'zh' ? ' 失败' : ' failed');
-          // 把每条的**具体原因**带出来。预检拦下的会写"L3 内容 未通过（REJECT）：…"，
-          // 只显示一个"N 个失败"等于把最有用的那句话丢掉。
-          var why = (res.results || []).filter(function(x) { return x && x.ok === false; })
-            .map(function(x) { return '· ' + x.name + '：' + (x.error || '未知原因'); }).join('\n');
-          if (why) msg += '\n\n' + why;
-        }
-        // 装成功的那几条，也要把预检结论带出来。
-        //
-        // 后端 `installer.py` 一直在每个 result 里回 `verify`（L1–L5 的完整报告），
-        // 但前端**一个字段都不读** —— 于是用户看到的只有"安装完成 1/1 成功"。
-        // 那五层检查等于白跑：结论生成了、传过来了、在最后一步被扔了。
-        //
-        // 最要紧的是 `SKIPPED`：报告里写着"跳过"，面板上写着"成功"，
-        // 两者的差距正是"以为验过了"。见 安装部署说明 §2。
-        var vlines = (res.results || []).filter(function(x) {
-          return x && x.ok !== false && x.verify;
-        }).map(function(x) {
-          var v = x.verify || {};
-          var line = '· ' + (x.name || '') + '：' + (v.summary || '');
-          var skipped = (v.layers || []).filter(function(L) {
-            return L && L.verdict === 'SKIPPED';
-          }).map(function(L) { return L.name; });
-          if (skipped.length) {
-            line += '\n   ⚠ ' + (currentLang === 'zh'
-              ? '未跑：' + skipped.join('、') + ' —— 跳过不是通过'
-              : 'not run: ' + skipped.join(', ') + ' — skipped is not passed');
-          }
-          return line;
-        });
-        if (vlines.length) msg += '\n\n' + vlines.join('\n');
-        alert(msg);
-        installQueue = [];
-        saveQueue();
+        installQueue = Array.isArray(res.pending) ? res.pending.map(normalizeQueueItem) : [];
+        localStorage.setItem('skill-forge-queue', JSON.stringify(installQueue));
         updateQueueBadge();
-        // R4-c：安装刚改动了 sources.json，已装名单和卡片上的"已安装"标记都过期了。
-        // loadInstalled() 会拿到新名单并顺带 renderSkills()，比只刷卡片更完整。
+        showInstallResult(res);
         loadInstalled();
       } else {
         alert((currentLang === 'zh' ? '安装失败：' : 'Failed: ') + (res.error || 'unknown'));
@@ -1552,7 +1892,39 @@ function triggerInstall() {
     })
     .catch(function(e) {
       alert((currentLang === 'zh' ? '安装请求失败，bridge 可能未运行。\n请等待 daemon 扫描完成后重试。' : 'Install request failed. Bridge may not be running.\nWait for daemon scan to complete and retry.'));
+    }).finally(function() { installingQueue = false; });
+}
+
+function showInstallResult(res) {
+  var body = document.getElementById('install-result-body'); body.innerHTML = '';
+  body.appendChild(mkEl('p', null, '安装完成：' + res.success + '/' + res.processed + ' 项成功'
+    + (res.failed ? '，' + res.failed + ' 项待处理' : '')));
+  (res.results || []).forEach(function(result) {
+    var entries = result.modules && result.modules.length ? result.modules : [result];
+    entries.forEach(function(entry) {
+      var card = mkEl('div', 'module-row');
+      var label = (entry.ok ? '✓ ' : '⚠ ') + (entry.name || result.name || '')
+        + (entry.target ? ' · ' + (entry.target === 'codex' ? 'Codex' : 'Claude Code') : '');
+      card.appendChild(mkEl('div', 'module-title', label));
+      var full = String(entry.error || (entry.verify && entry.verify.summary) || (entry.ok ? '安装成功' : result.error || '安装未完成'));
+      card.appendChild(mkEl('div', 'module-desc', full.length > 120 ? full.slice(0, 120) + '…' : full));
+      var layers = entry.verify && entry.verify.layers || [];
+      if (!entry.ok || layers.length) {
+        var details = mkEl('details', 'failure-detail');
+        details.appendChild(mkEl('summary', null, entry.ok ? '查看预检详情' : '查看详细原因'));
+        var report = [full].concat(layers.map(function(layer) {
+          var summary = [layer.name, layer.verdict, layer.reason].filter(Boolean).join(' · ');
+          return summary + ((layer.details || []).length ? '\n  ' + layer.details.join('\n  ') : '');
+        })).join('\n');
+        details.appendChild(mkEl('div', null, report)); card.appendChild(details);
+      }
+      body.appendChild(card);
     });
+    var syncMessage = codexSyncMessage(result);
+    if (syncMessage) body.appendChild(mkEl('div', 'modal-hint', syncMessage));
+  });
+  document.getElementById('btn-continue-install').style.display = installQueue.length ? '' : 'none';
+  document.getElementById('install-result-modal').classList.add('open');
 }
 
 // ============================================================
@@ -1568,30 +1940,90 @@ function triggerInstall() {
 //
 // `btn` 是为了就地显示进度 + 防连点：更新要走一遍 clone 和 L1–L5，
 // 不是瞬间的事；没有反馈的话用户会以为没点上，然后连点。
-function updateSkill(name, btn) {
+function codexSyncMessage(result) {
+  var sync = result && result.codex_sync;
+  if (!sync || !sync.enabled) return '';
+  if (sync.ok && (sync.independent || []).length) return currentLang === 'zh' ? 'Codex 保留独立版本' : 'Independent Codex version retained';
+  if (sync.ok) return currentLang === 'zh' ? 'Codex 技能已同步' : 'Skills synced to Codex';
+  return (currentLang === 'zh' ? '⚠ 操作已完成，Codex 同步未完成：' : '⚠ Operation completed; Codex sync incomplete: ')
+    + (sync.errors || []).join('; ');
+}
+
+function closeVersionHistory() { document.getElementById('version-modal').classList.remove('open'); }
+
+function openVersionHistory(name, tool) {
+  var modal = document.getElementById('version-modal');
+  var status = document.getElementById('version-status');
+  var list = document.getElementById('version-list');
+  document.getElementById('version-title').textContent = name + ' · ' + (tool === 'codex' ? 'Codex' : 'Claude Code') + ' 历史版本';
+  status.textContent = '正在读取版本记录…'; list.innerHTML = ''; modal.classList.add('open');
+  bridgeFetch('version-history', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:name,tool:tool})})
+    .then(function(r) { return r.json(); }).then(function(data) {
+      if (!data.ok) throw new Error(data.error || '读取失败');
+      status.textContent = data.warning || '选择线上版本安装，或从本机备份回退。操作前会保留当前版本。';
+      list.appendChild(mkEl('h4', null, '线上版本'));
+      if (!data.commits.length) list.appendChild(mkEl('div', 'modal-hint', '暂无线上版本记录'));
+      data.commits.forEach(function(commit) {
+        var row = mkEl('div', 'installed-item');
+        row.appendChild(mkEl('div', 'module-desc', commit.sha.slice(0, 8) + ' · ' + (commit.date || '').slice(0, 10) + ' · ' + (commit.message || '')));
+        var button = mkEl('button', 'btn btn-ghost btn-sm', '安装此版本');
+        button.addEventListener('click', function() {
+          if (!confirm('将 ' + name + ' 更新到版本 ' + commit.sha.slice(0, 8) + '？')) return;
+          closeVersionHistory(); updateSkill(name, null, tool, commit.sha);
+        });
+        row.appendChild(button); list.appendChild(row);
+      });
+      list.appendChild(mkEl('h4', null, '本机备份'));
+      if (!data.backups.length) list.appendChild(mkEl('div', 'modal-hint', '暂无本机备份'));
+      data.backups.forEach(function(backup) {
+        var row = mkEl('div', 'installed-item');
+        row.appendChild(mkEl('div', 'module-desc', backup.name + ' · ' + (backup.sha ? backup.sha.slice(0, 8) : '版本未知')));
+        var button = mkEl('button', 'btn btn-ghost btn-sm', '回退');
+        button.addEventListener('click', function() {
+          if (!confirm('从此备份回退 ' + name + '？当前版本会先保留。')) return;
+          button.disabled = true; status.textContent = '正在检查并恢复备份…';
+          bridgeFetch('rollback', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,tool:tool,backup:backup.name})})
+            .then(function(r) { return r.json(); }).then(function(result) {
+              if (!result.ok) throw new Error(result.error || '回退失败');
+              alert('回退完成：' + name + (result.version_unknown ? '\n此备份的版本号未知。' : '') + (result.verify && result.verify.summary ? '\n' + result.verify.summary : '') + (codexSyncMessage(result) ? '\n' + codexSyncMessage(result) : ''));
+              closeVersionHistory(); loadInstalled(); checkUpdates(true);
+            }).catch(function(e) { button.disabled = false; status.textContent = '回退失败：' + e.message; });
+        });
+        row.appendChild(button); list.appendChild(row);
+      });
+    }).catch(function(e) { status.textContent = '读取失败：' + e.message; });
+}
+
+function updateSkill(name, btn, tool, revision) {
+  if (installingQueue) { showToast('请等待当前安装完成'); return; }
+  if (updatingSkills.has(name)) return;
+  updatingSkills.add(name);
   var original = btn ? btn.textContent : '';
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ ' + t('checking_updates'); }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ ' + t('updating'); }
   function restore() {
+    updatingSkills.delete(name);
     if (btn) { btn.disabled = false; btn.textContent = original; }
   }
 
-  bridgeFetch('update', {
+  return bridgeFetch('update', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name })
+    body: JSON.stringify(Object.assign({name:name}, tool === 'codex' ? {tool:'codex'} : {}, revision ? {revision:revision} : {}))
   })
     .then(function(r) { return r.json(); })
     .then(function(res) {
       restore();
       if (!res || !res.ok) {
         alert((currentLang === 'zh' ? '更新失败：' : 'Update failed: ')
-              + ((res && (res.error || res.message)) || 'unknown'));
+              + ((res && (res.message || res.error)) || 'unknown'));
         return;
       }
       var v = res.verify || {};
       var msg = (currentLang === 'zh' ? '更新完成：' : 'Updated: ') + name
               + (res.sha ? '  (' + res.sha + ')' : '');
       if (v.summary) msg += '\n' + v.summary;
+      var syncMessage = codexSyncMessage(res);
+      if (syncMessage) msg += '\n' + syncMessage;
       // 与安装那条路保持一致：把 SKIPPED 的层单独点出来。
       // 汇总里"跳过"和"通过"挨着长，这正是"以为验过了"的来源。
       var skipped = (v.layers || []).filter(function(L) {
@@ -1599,8 +2031,11 @@ function updateSkill(name, btn) {
       }).map(function(L) { return L.name; });
       if (skipped.length) {
         msg += '\n⚠ ' + (currentLang === 'zh'
-          ? '未跑：' + skipped.join('、') + ' —— 跳过不是通过'
-          : 'not run: ' + skipped.join(', ') + ' — skipped is not passed');
+          ? '未跑：' + skipped.join('、')
+          : 'not run: ' + skipped.join(', '));
+      }
+      if ((res.updated_skills || []).length) {
+        msg += '\n' + (currentLang === 'zh' ? '已同步更新 ' + res.updated_skills.length + ' 个子技能' : 'Updated ' + res.updated_skills.length + ' sub-skills');
       }
       if ((res.extra_skills || []).length) {
         msg += '\n' + (currentLang === 'zh'
@@ -1610,11 +2045,23 @@ function updateSkill(name, btn) {
       showToast('🔄 ' + (currentLang === 'zh' ? '已更新 ' + name : 'Updated ' + name));
       alert(msg);
 
+      var updatedNames = new Set([name].concat(res.updated_skills || []));
+      if (tool !== 'codex') {
+        updatedNames.forEach(function(updatedName) {
+          delete availableUpdates[updatedName];
+          if (revision) completedUpdates.delete(updatedName); else completedUpdates.add(updatedName);
+        });
+      } else {
+        delete availableUpdates['codex:' + name];
+        if (revision) completedUpdates.delete('codex:' + name); else completedUpdates.add('codex:' + name);
+      }
+      setServiceState(true);
+      document.getElementById('update-status').textContent = (currentLang === 'zh' ? '已更新：' : 'Updated: ') + name;
       // 就地清掉这一条的"有更新"状态。不清的话卡片会一直挂着
       // 「🔄 更新到最新」，直到下一次周度扫描把 status 重算一遍 ——
       // 而用户刚刚才点过更新，那个徽章就是在骗人。
-      allSkills.forEach(function(s) {
-        if (s.name === name) {
+      if (tool !== 'codex') allSkills.forEach(function(s) {
+        if (updatedNames.has(s.name)) {
           s.status = null;
           if (res.sha) s.installed_sha = res.sha;
         }
@@ -1622,7 +2069,8 @@ function updateSkill(name, btn) {
       // 更新改了 sources.json，也改了这条的 SHA：名单要重取。
       // renderSkills() 再显式画一次 —— 不依赖 loadInstalled 内部的渲染时机。
       loadInstalled();
-      renderSkills();
+      refreshUpdateViews();
+      if (revision) checkUpdates(true);
     })
     .catch(function() {
       restore();
@@ -1644,57 +2092,55 @@ function updateSkill(name, btn) {
 // **不改别的** —— "本周有哪些新东西"由周度扫描决定，这里只回答
 // "我装的那几个有没有新提交"。
 function checkUpdates(silent) {
-  if (!bridgeAvailable) return;
-  bridgeFetch('updates')
+  if (updatesChecking) return;
+  updatesChecking = true;
+  var button = document.getElementById('btn-check-updates');
+  var status = document.getElementById('update-status');
+  button.disabled = true;
+  button.textContent = t('checking_updates');
+  status.textContent = t('checking_updates');
+  return bridgeFetch('updates')
     .then(function(r) { return r.json(); })
     .then(function(res) {
-      if (!res || !res.ok) {
-        if (!silent) {
-          showToast('⚠ ' + (currentLang === 'zh' ? '检查更新失败：' : 'Check failed: ')
-                    + ((res && res.error) || '?'));
-        }
-        return;
-      }
-      var byName = {};
-      (res.updates || []).forEach(function(u) { byName[u.name] = u; });
-      var marked = 0;
-      allSkills.forEach(function(s) {
-        var u = byName[s.name];
-        if (!u) return;
-        s.status = 'update_available';
-        s.installed_sha = u.installed_sha;
-        s.latest_sha = u.latest_sha;
-        marked++;
+      if (!res || !res.ok) throw new Error((res && (res.message || res.error)) || 'unknown');
+      setServiceState(true);
+      var checked = new Set(res.checked_names || []);
+      (res.checked_names || []).forEach(function(name) { delete availableUpdates[name]; });
+      (res.checked_codex_names || []).forEach(function(name) { delete availableUpdates['codex:' + name]; });
+      if (!res.partial) availableUpdates = Object.create(null);
+      (res.updates || []).forEach(function(u) {
+        var key = u.tool === 'codex' ? 'codex:' + u.name : u.name;
+        availableUpdates[key] = u;
+        completedUpdates.delete(key);
       });
-      renderSkills();
-
-      if (silent) {
-        if (marked) {
-          showToast('🔄 ' + (currentLang === 'zh'
-            ? marked + ' 个 skill 有更新' : marked + ' update(s)'));
+      allSkills.forEach(function(s) {
+        var u = availableUpdates[s.name] || availableUpdates['codex:' + s.name];
+        if (u) {
+          s.status = 'update_available';
+          s.installed_sha = u.installed_sha;
+          s.latest_sha = u.latest_sha;
+        } else if (checked.has(s.name) || !res.partial) {
+          if (s.status === 'update_available') s.status = null;
         }
-        return;
-      }
-      // ⚠️ partial = 有的**没查成**（多半是限流或断网）。
-      // 那和"确认大家都是最新"是两件完全不同的事，必须分开说 ——
-      // 把"没查到"显示成"没有更新"正是这个仓库反复在修的那类毛病。
-      var msg = (currentLang === 'zh'
-        ? '已查 ' + res.checked + '/' + res.targets + ' 个'
-        : 'checked ' + res.checked + '/' + res.targets)
-        + '，' + res.count + (currentLang === 'zh' ? ' 个有更新' : ' with updates');
-      if (res.partial) {
-        msg += '\n⚠ ' + (currentLang === 'zh'
-          ? '有 ' + (res.targets - res.checked) + ' 个没查到（多半是 GitHub 限流）—— 那不是"已是最新"'
-          : (res.targets - res.checked) + ' could not be checked (likely rate limit) — that is not "up to date"');
-      }
-      if (res.cached) {
-        msg += '\n' + (currentLang === 'zh'
-          ? '（' + Math.round((res.age_sec || 0) / 60) + ' 分钟内的缓存）'
-          : '(cached)');
-      }
-      alert(msg);
+      });
+      refreshUpdateViews();
+      var msg = currentLang === 'zh'
+        ? '已检查 ' + res.checked + '/' + res.targets + ' · ' + res.count + ' 个可更新'
+        : 'Checked ' + res.checked + '/' + res.targets + ' · ' + res.count + ' updates';
+      if (res.partial) msg += currentLang === 'zh' ? ' · 未查到：' + (res.unchecked_names || []).join('、') + '（请检查来源或网络）' : ' · Unchecked: ' + (res.unchecked_names || []).join(', ') + ' (check source or network)';
+      if (res.cached) msg += currentLang === 'zh' ? ' · 缓存 ' + Math.round((res.age_sec || 0) / 60) + ' 分钟' : ' · Cached';
+      status.textContent = msg;
+      if (!silent) showToast(msg);
     })
-    .catch(function() { /* bridge 不在线就静默跳过 */ });
+    .catch(function(error) {
+      setServiceState(false);
+      status.textContent = (currentLang === 'zh' ? '检查失败：' : 'Check failed: ') + error.message;
+    })
+    .finally(function() {
+      updatesChecking = false;
+      button.disabled = false;
+      button.textContent = t('check_updates');
+    });
 }
 
 function updateQueueBadge() {
@@ -1717,9 +2163,15 @@ function showToast(msg, sub) {
 
 function saveQueue() {
   localStorage.setItem('skill-forge-queue', JSON.stringify(installQueue));
-  if (!bridgeAvailable) return;
-  try {
-    bridgeFetch('', {
+  var pending = installQueue.map(function(q) {
+    var item = {skill_name:q.name, repo_url:q.url, added_at:q.added_at, trust_level:q.trust_level};
+    if (Array.isArray(q.selected_modules)) {
+      item.selected_modules = q.selected_modules; item.branch = q.branch; item.preview_sha = q.preview_sha; item.needs_preview = !!q.needs_preview;
+    }
+    return item;
+  });
+  queueSaveChain = queueSaveChain.catch(function() {}).then(function() {
+    return bridgeFetch('', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       // 只发 pending。**不发** history / last_processed ——
@@ -1727,11 +2179,22 @@ function saveQueue() {
       // 因为"装过什么"是一条审计线索，不该由页面来写：
       // 面板是渲染不受信内容的地方，而这个后端是唯一能删本地文件的进程。
       // 见 daemon/queue_bridge.py::_handle_save_queue 的注释。
-      body: JSON.stringify({ version: 1, pending: installQueue.map(function(q) {
-        return { skill_name: q.name, repo_url: q.url, added_at: q.added_at, trust_level: q.trust_level };
-      }) })
-    }).catch(function(){});
-  } catch(e) {}
+      body: JSON.stringify({ version: 1, pending: pending })
+    }).then(function(response) { return response.json(); }).then(function(data) {
+      if (!data.ok) throw new Error(data.error || '无法保存安装队列');
+    });
+  });
+  queueSaveChain.catch(function() { showToast('⚠ 安装队列尚未同步到后台'); });
+  return queueSaveChain;
+}
+
+function normalizeQueueItem(p) {
+  var item = {name:p.name || p.skill_name || '', url:p.url || p.repo_url || '',
+              added_at:p.added_at || new Date().toISOString(), trust_level:'pending'};
+  if (Array.isArray(p.selected_modules)) {
+    item.selected_modules = p.selected_modules; item.branch = p.branch; item.preview_sha = p.preview_sha; item.needs_preview = !!p.needs_preview;
+  }
+  return item;
 }
 
 // ============================================================
@@ -1750,6 +2213,14 @@ function bindStaticHandlers() {
   on('btn-settings', 'click', openSettings);
   on('btn-close-settings', 'click', closeSettings);
   on('btn-settings-close2', 'click', closeSettings);
+  on('btn-close-modules', 'click', function() { previewRequest++; document.getElementById('module-modal').classList.remove('open'); previewSelection = null; });
+  on('btn-close-version', 'click', closeVersionHistory);
+  on('btn-dismiss-version', 'click', closeVersionHistory);
+  on('btn-cancel-modules', 'click', function() { previewRequest++; document.getElementById('module-modal').classList.remove('open'); previewSelection = null; });
+  on('btn-confirm-modules', 'click', confirmModulePreview);
+  on('btn-close-install-result', 'click', function() { document.getElementById('install-result-modal').classList.remove('open'); });
+  on('btn-dismiss-install-result', 'click', function() { document.getElementById('install-result-modal').classList.remove('open'); });
+  on('btn-continue-install', 'click', function() { document.getElementById('install-result-modal').classList.remove('open'); triggerInstall(); });
   // 点遮罩空白处关闭（点内容区不该关，所以判断 target 就是遮罩本身）
   var overlay = document.getElementById('settings-modal');
   if (overlay) {
@@ -1758,17 +2229,24 @@ function bindStaticHandlers() {
     });
   }
   on('btn-installed', 'click', toggleInstalled);
+  on('btn-check-updates', 'click', function() { checkUpdates(false); });
   on('btn-close-installed', 'click', toggleInstalled);
   on('btn-ext-sources', 'click', toggleExtSources);
   on('btn-source-filters', 'click', toggleSourceFilters);
   on('btn-add-source', 'click', addExternalSource);
-  on('btn-save-sources', 'click', saveExtSources);
+  on('btn-save-sources', 'click', function() { saveExtSources(false); });
   on('btn-fetch-sources', 'click', fetchExtSources);
   on('btn-queue', 'click', showQueue);
   on('filter-category', 'change', renderSkills);
   on('filter-status', 'change', renderSkills);
   on('filter-sort', 'change', renderSkills);
-  on('search-input', 'input', renderSkills);
+  on('search-input', 'input', function() {
+    semanticRequest++; semanticRank = null; onlineResults = null;
+    document.getElementById('btn-ai-search').disabled = false;
+    document.getElementById('search-status').textContent = '';
+    renderSkills();
+  });
+  on('btn-ai-search', 'click', searchWithAI);
 }
 
 // ============================================================
@@ -1842,9 +2320,9 @@ function fetchTranslateConfig() {
       settingsState.currentModel = (d && d.models && d.models.current) || '';
       settingsState.aiReady = !!(d && d.ai_ready);
       // 没选过模型就默认用当前在用的那个，省得每次都要手点
-      if (!settingsState.config.model && settingsState.currentModel) {
-        settingsState.config.model = settingsState.currentModel;
-        saveConfig({ model: settingsState.currentModel }, true);
+      if (!settingsState.config.model) {
+        settingsState.config.model = 'deepseek-flash';
+        saveConfig({ model: 'deepseek-flash' }, true);
       }
       // 没选过提示词就用 manifest 的默认
       if (!settingsState.config.prompt && d && d.prompts && d.prompts.default) {
@@ -1906,11 +2384,11 @@ function renderModelList() {
   if (!box) return;
   box.innerHTML = '';
 
-  if (!settingsState.models.length) {
-    box.appendChild(mkEl('div', 'model-empty', t('model_none')));
-    return;
-  }
-  settingsState.models.forEach(function(m) {
+  var models = settingsState.models.filter(function(m) { return /^deepseek-/i.test(m.id); });
+  if (settingsState.config.model && /^deepseek-/i.test(settingsState.config.model) && !models.some(function(m) { return m.id === settingsState.config.model; }))
+    models.unshift({id:settingsState.config.model, tier:'DeepSeek'});
+  if (!models.some(function(m) { return m.id === 'deepseek-flash'; })) models.push({id:'deepseek-flash', tier:'DeepSeek'});
+  models.forEach(function(m) {
     var on = settingsState.config.model === m.id;
     var card = mkEl('div', 'model-card' + (on ? ' active' : ''));
     card.appendChild(mkEl('div', 'mc-dot'));
@@ -1924,6 +2402,15 @@ function renderModelList() {
     card.addEventListener('click', function() { saveConfig({ model: m.id }); });
     box.appendChild(card);
   });
+  var input = mkEl('input', 'model-input');
+  input.placeholder = 'DeepSeek 模型 ID，例如 deepseek-flash';
+  input.value = settingsState.config.model || '';
+  var save = mkEl('button', 'btn btn-ghost btn-sm', '保存模型');
+  save.addEventListener('click', function() {
+    if (!/^deepseek-[A-Za-z0-9._-]{1,90}$/.test(input.value.trim())) { showToast('请输入有效的 DeepSeek 模型 ID'); return; }
+    saveConfig({model:input.value.trim()});
+  });
+  box.appendChild(input); box.appendChild(save);
 }
 
 // 内置翻译提示词的选择器。和模型选择器同一套外观 ——
@@ -2059,11 +2546,8 @@ setTimeout(function() { ctrl.abort(); }, 3000);
 bridgeFetch('', { signal: ctrl.signal })
   .then(function(r) { return r.ok ? r.json() : Promise.reject(); })
   .then(function(data) {
-    installQueue = (data.pending || []).map(function(p) {
-      return { name: p.name || p.skill_name || '', url: p.url || p.repo_url || '',
-               added_at: p.added_at || new Date().toISOString(), trust_level: 'pending' };
-    });
-    bridgeAvailable = true;
+    installQueue = (data.pending || []).map(normalizeQueueItem);
+    setServiceState(true);
     updateQueueBadge(); renderSkills();
     // 自动检查更新：silent 模式 —— 结果直接反映到卡片的徽章和按钮上，
     // 不弹对话框（打开面板就被弹一个框很烦）。
@@ -2072,6 +2556,7 @@ bridgeFetch('', { signal: ctrl.signal })
     checkUpdates(true);
   })
   .catch(function() {
+    setServiceState(false);
     installQueue = JSON.parse(localStorage.getItem('skill-forge-queue') || '[]');
   });
 

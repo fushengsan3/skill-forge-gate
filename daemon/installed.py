@@ -61,6 +61,7 @@ def installed_snapshot(skill_root=None) -> list:
         raw_trust = info.get("trust_level", "")
         skills.append({
             "name": name,
+            "tool": "claude",
             "type": info.get("type", "unknown"),
             "url": info.get("url", ""),
             "installed_sha": str(info.get("installed_sha", ""))[:8],
@@ -75,5 +76,20 @@ def installed_snapshot(skill_root=None) -> list:
             "subpath": info.get("subpath", "") or "",
         })
 
+    codex_file = root / "templates" / "codex-sources.json"
+    if codex_file.exists():
+        try:
+            codex_sources = json.loads(codex_file.read_text(encoding="utf-8"))
+            for name, info in codex_sources.items():
+                if not isinstance(info, dict):
+                    continue
+                trust = info.get("trust_level", "")
+                skills.append({"name": name, "tool": "codex", "type": info.get("type", "remote"),
+                    "url": info.get("url", ""), "installed_sha": str(info.get("installed_sha", ""))[:8],
+                    "installed_at": info.get("installed_at", ""), "is_self": False,
+                    "trust_level": trust if trust in ("verified", "partial", "unverified") else "",
+                    "trust_note": info.get("trust_note", "") or "", "subpath": info.get("subpath", "") or ""})
+        except (OSError, ValueError, AttributeError) as exc:
+            log(f"codex-sources.json 读取失败（{type(exc).__name__}）")
     skills.sort(key=lambda s: s.get("installed_at", ""), reverse=True)
     return skills

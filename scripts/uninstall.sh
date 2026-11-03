@@ -81,3 +81,10 @@ if '$SKILL_NAME' in data:
 else:
     print(json.dumps({'ok': True, 'name': '$SKILL_NAME', 'note': 'no sources.json entry'}, ensure_ascii=False))
 "
+
+# 同步到 Codex：只在本机启用后生效，错误单独报告，不把安装成功说成失败。
+if [[ -f "$SKILL_FORGE/daemon/codex_sync.py" && -f "$SKILL_FORGE/templates/codex-sync.json" ]]; then
+    (cd "$SKILL_FORGE" && python3 -m daemon.codex_sync \
+        --skills-root "$SKILLS_ROOT" --forge-root "$SKILL_FORGE" "$SKILL_NAME") >&2 \
+        || echo 'Codex 同步未完成，可运行 python -m daemon.codex_sync 重试。' >&2
+fi

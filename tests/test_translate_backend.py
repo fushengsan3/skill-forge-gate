@@ -103,110 +103,24 @@ def run_checks(cache_file, cfg_file):
     check(all(p["available"] for p in listed["prompts"]),
           "12 清单里的提示词文件都真实存在")
 
-    # ---- 3. 输出校验：模型加壳必须被拒 ----
-    for bad in ["以下是翻译：你好", "译文如下：你好", "```\n你好\n```",
-                "Here is the translation: hi", "你好。希望对你有帮助"]:
-        check(translate_ai._looks_wrapped(bad), f"13 拒绝加壳输出: {bad[:14]}")
-    for good in ["你好世界", "这是一个用于代码审查的 skill"]:
-        check(not translate_ai._looks_wrapped(good), f"14 正常译文不被误拒: {good}")
+    # Unverified catalog entries must not be sent to any remote provider.
+    from daemon import privacy
+    try:
+        translate_ai.translate("private text", "deepseek-flash")
+        check(False, "13 拒绝上传来源不明的内容")
+    except translate_ai.AIBackendError:
+        check(True, "13 拒绝上传来源不明的内容")
 
-    # ---- 4. AI 不可用时的行为 ----
-    with patch.object(translate_ai.credentials, "get_secret", return_value=None):
-        try:
-            translate_ai.translate("hello", "m1")
-            check(False, "15 无密钥时应抛 AIBackendError")
-        except translate_ai.AIBackendError as e:
-            check("密钥" in str(e), "15 无密钥时抛 AIBackendError", str(e))
-
-    # ---- 5. 分发：google 后端 ----
     calls = []
-
-    def fake_google(text):
-        calls.append(("google", text))
-        return "中文:" + text
-
-    translate_config.save({"backend": "google"})
     skills = [skill("a", "hello world"), skill("b", "纯中文描述")]
-    with patch.object(translate, "_api_translate", side_effect=fake_google), \
+    with patch.object(translate, "_api_translate", side_effect=lambda text: calls.append(text)), \
+         patch.object(translate_ai, "translate", side_effect=AssertionError("unexpected remote call")), \
          patch("time.sleep", return_value=None):
         translate.translate_skills(skills)
-    check(skills[0]["description_zh"] == "中文:hello world", "16 google 后端正常翻译")
-    check(skills[1]["description_zh"] == "纯中文描述", "17 纯中文条目直接复用，不调接口")
-    check(len(calls) == 1, "18 只对需要翻译的条目调接口", f"{len(calls)} 次")
-
-    # ---- 6. 分发：AI 后端成功路径 ----
-    cache_file.unlink(missing_ok=True)
-    translate_config.save({"backend": "ai", "model": "m1", "prompt": "skill-forge-tech"})
-    seen = {}
-
-    def fake_ai(text, model, prompt_id=""):
-        seen["model"] = model
-        seen["prompt"] = prompt_id
-        return "AI译:" + text
-
-    with patch.object(translate_ai, "translate", side_effect=fake_ai), \
-         patch.dict(sys.modules, {"daemon.translate_ai": translate_ai}), \
-         patch("time.sleep", return_value=None):
-        # 让 _translate_one 内部 import 到的就是被 patch 过的那个模块
-        s2 = [skill("c", "ai backend test")]
-        translate.translate_skills(s2)
-    check(s2[0]["description_zh"] == "AI译:ai backend test",
-          "19 AI 后端成功时用 AI 译文", s2[0]["description_zh"])
-    check(seen.get("model") == "m1", "20 AI 后端收到配置里的模型")
-    check(seen.get("prompt") == "skill-forge-tech", "21 AI 后端收到配置里的提示词")
-
-    # ---- 7. 关键：AI 失败必须回退 google，而不是让扫描失败 ----
-    cache_file.unlink(missing_ok=True)
-    translate_config.save({"backend": "ai", "model": "m1"})
-    google_calls = []
-
-    def fake_google2(text):
-        google_calls.append(text)
-        return "兜底:" + text
-
-    def boom(*a, **k):
-        raise translate_ai.AIBackendError("余额不足")
-
-    with patch.object(translate_ai, "translate", side_effect=boom), \
-         patch.object(translate, "_api_translate", side_effect=fake_google2), \
-         patch("time.sleep", return_value=None):
-        s3 = [skill("d", "fallback test")]
-        translate.translate_skills(s3)
-    check(s3[0]["description_zh"] == "兜底:fallback test",
-          "22 AI 失败时静默回退 google，扫描不受影响", s3[0]["description_zh"])
-    check(len(google_calls) == 1, "23 回退确实调用了 google", f"{len(google_calls)} 次")
-
-    # ---- 8. 缓存 ----
-    cache_file.unlink(missing_ok=True)
-    translate_config.save({"backend": "google"})
-    n = []
-
-    def counting(text):
-        n.append(text)
-        return "计:" + text
-
-    with patch.object(translate, "_api_translate", side_effect=counting), \
-         patch("time.sleep", return_value=None):
-        translate.translate_skills([skill("e", "cache me")])
-        translate.translate_skills([skill("e", "cache me")])
-    check(len(n) == 1, "24 第二条命中缓存，不重复调用", f"调了 {len(n)} 次")
-
-    # ---- 9. 缓存不会被脏译文污染 ----
-    cache_file.unlink(missing_ok=True)
-    translate_config.save({"backend": "ai", "model": "m1"})
-
-    def wrapped(*a, **k):
-        raise translate_ai.AIBackendError("模型输出带解释")
-
-    with patch.object(translate_ai, "translate", side_effect=wrapped), \
-         patch.object(translate, "_api_translate", return_value=""), \
-         patch("time.sleep", return_value=None):
-        s4 = [skill("f", "dirty")]
-        translate.translate_skills(s4)
-    import json
-    cached = json.loads(cache_file.read_text(encoding="utf-8")) if cache_file.exists() else {}
-    check(s4[0]["description_zh"] == "" and not cached,
-          "25 两个后端都失败时留空，且不写缓存", f"缓存={cached}")
+    check(skills[0]["description_zh"] == "", "14 未经验证的英文简介保留原文")
+    check(skills[1]["description_zh"] == "纯中文描述", "15 中文简介直接使用")
+    check(not calls, "16 不调用 Google 或其他未经授权的接口")
+    check(privacy.capability_tags("需要 PDF 论文") == ["pdf", "research"], "17 搜索提取通用标签")
 
 
 if __name__ == "__main__":

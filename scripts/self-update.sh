@@ -24,6 +24,11 @@
 #   self-update.sh --rollback         回滚到最近一次自更新之前
 #   self-update.sh --rollback <目录>  回滚到指定的留档
 set -euo pipefail
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=Never GIT_LFS_SKIP_SMUDGE=1
+unset GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_ASKPASS SSH_ASKPASS
+for sf_proxy in "${SKILL_FORGE_PROXY:-}" "${http_proxy:-}" "${https_proxy:-}" "${HTTP_PROXY:-}" "${HTTPS_PROXY:-}"; do
+    case "$sf_proxy" in *://*@*) echo '隐私模式下不发送代理凭据' >&2; exit 1;; esac
+done
 
 # 代理不再写死（见 安装部署说明.md §3）：设了 SKILL_FORGE_PROXY 才走代理。
 if [ -n "${SKILL_FORGE_PROXY:-}" ]; then

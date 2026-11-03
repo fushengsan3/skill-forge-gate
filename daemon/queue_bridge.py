@@ -117,10 +117,20 @@ class QueueHandler(BaseHTTPRequestHandler):
             self._handle_fetch_ext_sources()
         elif self.path.rstrip("/") == "/install":
             self._handle_install()
+        elif self.path.rstrip("/") == "/preview-install":
+            self._handle_preview_install(data)
+        elif self.path.rstrip("/") == "/ai-search":
+            self._handle_ai_search(data)
         elif self.path.rstrip("/") == "/uninstall":
             self._handle_uninstall(data)
         elif self.path.rstrip("/") == "/update":
             self._handle_update(data)
+        elif self.path.rstrip("/") == "/version-history":
+            from daemon.version_history import history
+            self._json_reply(history(data.get('name', ''), data.get('tool') or 'claude'))
+        elif self.path.rstrip("/") == "/rollback":
+            from daemon.version_history import rollback
+            self._json_reply(rollback(data.get('name', ''), data.get('tool') or 'claude', data.get('backup', '')))
         elif self.path.rstrip("/") == "/credentials/request":
             self._handle_request_credential(data)
         elif self.path.rstrip("/") == "/credentials/delete":
@@ -266,6 +276,16 @@ class QueueHandler(BaseHTTPRequestHandler):
 
     def _handle_save_ext_sources(self, data):
         try:
+            from urllib.parse import urlsplit
+            sources = data.get('sources')
+            if not isinstance(sources, list):
+                raise ValueError('来源列表格式无效')
+            for source in sources:
+                if not isinstance(source, dict) or not isinstance(source.get('url'), str):
+                    raise ValueError('来源格式无效')
+                parsed = urlsplit(source['url'])
+                if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+                    raise ValueError('仅支持不含凭据或查询参数的 HTTPS 地址')
             EXT_SOURCES_FILE.parent.mkdir(parents=True, exist_ok=True)
             EXT_SOURCES_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
             self._json_reply({"ok": True, "count": len(data.get("sources", []))})
@@ -276,12 +296,24 @@ class QueueHandler(BaseHTTPRequestHandler):
         """从外部数据源拉取 skill 并返回结果"""
         try:
             from daemon.fetcher import fetch_external_sources
-            skills = fetch_external_sources()
-            self._json_reply({"ok": True, "count": len(skills), "skills": skills})
+            report = fetch_external_sources(with_report=True)
+            self._json_reply({"ok": not bool(report['errors']), "count": len(report['skills']),
+                              "skills": report['skills'], "errors": report['errors']})
         except Exception as e:
             self._json_reply({"ok": False, "error": str(e)})
 
     # ---- Install ----
+
+    def _handle_ai_search(self, data):
+        from daemon.semantic_search import search_online
+        self._json_reply(search_online(data.get('query')))
+
+    def _handle_preview_install(self, data):
+        try:
+            from daemon.module_install import preview
+            self._json_reply(preview(data.get("name", ""), data.get("url", "")))
+        except Exception as exc:
+            self._json_reply({"ok": False, "error": str(exc)})
 
     def _handle_install(self):
         """触发安装队列处理"""
@@ -301,6 +333,15 @@ class QueueHandler(BaseHTTPRequestHandler):
         name = data.get("name", "")
         if not name:
             self._json_reply({"ok": False, "error": "name is required"})
+            return
+
+        if data.get("tool") == "codex":
+            from daemon.module_install import uninstall_codex
+            result = uninstall_codex(name)
+            if result.get("ok"):
+                with _check_updates_lock:
+                    _check_updates_cache.update(at=0.0, result=None)
+            self._json_reply(result)
             return
 
         # 先验名，再拼路径 —— 顺序反了就等于没验。
@@ -335,7 +376,11 @@ class QueueHandler(BaseHTTPRequestHandler):
                 if name in sources:
                     del sources[name]
                     sources_file.write_text(json.dumps(sources, ensure_ascii=False, indent=2), encoding="utf-8")
-            self._json_reply({"ok": True, "name": name})
+            from daemon.codex_sync import sync_skills
+            sync = sync_skills(SKILLS_DIR, SKILL_ROOT, [name])
+            with _check_updates_lock:
+                _check_updates_cache.update(at=0.0, result=None)
+            self._json_reply({"ok": True, "name": name, "codex_sync": sync})
         except Exception as e:
             self._json_reply({"ok": False, "error": str(e)})
 
@@ -344,10 +389,8 @@ class QueueHandler(BaseHTTPRequestHandler):
     def _handle_update(self, data):
         """把一个**已安装**的 skill 更新到上游最新。
 
-        更新 = 用同一条安装链路重装一遍：`install_skill` 会重新 clone、
-        重跑 L1–L5 预检、替换目录、把新 SHA 写回 sources.json。
-        这里刻意**不另写一套更新逻辑** —— 安装和更新必须是同一条路，
-        否则"更新"就成了绕过预检的后门（安装有预检、更新没有）。
+        按登记的分支和子目录更新，复用安装的 clone、L1–L5 与文件选择。
+        替换前暂存新文件并备份旧目录；注册表写入失败时恢复旧目录。
 
         URL **只从 sources.json 取，不接受请求体里的 URL**：
         bridge 是常驻进程，让前端指定 URL 等于开一个"任何能过 Origin 校验的
@@ -356,6 +399,16 @@ class QueueHandler(BaseHTTPRequestHandler):
         name = (data or {}).get("name", "")
         if not name:
             self._json_reply({"ok": False, "error": "name is required"})
+            return
+
+        if data.get("tool") == "codex":
+            from daemon.module_install import update_codex
+            revision = data.get('revision') or ''
+            result = update_codex(name, revision) if revision else update_codex(name)
+            if result.get("ok"):
+                with _check_updates_lock:
+                    _check_updates_cache.update(at=0.0, result=None)
+            self._json_reply(result)
             return
 
         # 先验名再拼路径 —— 顺序反了就等于没验（同 _handle_uninstall）
@@ -404,8 +457,9 @@ class QueueHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            from daemon.installer import install_skill
-            result = install_skill(name, url, info.get("full_name", ""))
+            from daemon.installer import update_skill
+            revision = data.get('revision') or ''
+            result = update_skill(name, info, revision) if revision else update_skill(name, info)
         except Exception as e:
             self._json_reply({"ok": False,
                               "error": f"更新时异常：{type(e).__name__}: {e}"})
@@ -414,6 +468,9 @@ class QueueHandler(BaseHTTPRequestHandler):
         payload = dict(result)
         payload["name"] = name
         payload["ok"] = bool(result.get("ok"))
+        if payload["ok"]:
+            with _check_updates_lock:
+                _check_updates_cache.update(at=0.0, result=None)
         self._json_reply(payload)
 
     # ---- 检查更新（面板打开时自动问一次）----
@@ -450,6 +507,14 @@ class QueueHandler(BaseHTTPRequestHandler):
         except Exception as e:
             return {"ok": False, "error": f"sources.json 读不出来：{e}"}
 
+        codex_file = SKILL_ROOT / "templates" / "codex-sources.json"
+        try:
+            codex = json.loads(codex_file.read_text(encoding="utf-8")) if codex_file.exists() else {}
+            if not isinstance(codex, dict): raise ValueError('格式不是对象')
+        except Exception as exc:
+            return {"ok": False, "error": f"Codex 来源记录读不出来：{type(exc).__name__}"}
+        sources.update({"codex:" + name: info for name, info in codex.items()})
+
         # 只查非 self 的（fetch_latest_shas 内部也会跳过 self）
         targets = [n for n, i in sources.items()
                    if isinstance(i, dict) and not i.get("self")]
@@ -459,14 +524,18 @@ class QueueHandler(BaseHTTPRequestHandler):
         except Exception as e:
             return {"ok": False, "error": f"查询失败：{type(e).__name__}: {e}"}
 
+        from daemon.watchdog import _looks_like_sha
         updates = []
         for name in targets:
             info = sources.get(name) or {}
             cur = (info.get("installed_sha") or "").strip()
             new = (latest.get(name) or "").strip()
-            if new and cur and new != cur:
+            # Old registrations can contain abbreviated SHAs or placeholders.
+            if (_looks_like_sha(new) and _looks_like_sha(cur)
+                    and new[:8].lower() != cur[:8].lower()):
                 updates.append({
-                    "name": name,
+                    "name": name[6:] if name.startswith("codex:") else name,
+                    "tool": "codex" if name.startswith("codex:") else "claude",
                     "installed_sha": cur[:8],
                     "latest_sha": new[:8],
                 })
@@ -480,6 +549,10 @@ class QueueHandler(BaseHTTPRequestHandler):
             "partial": len(latest) < len(targets),
             "count": len(updates),
             "updates": updates,
+            "checked_names": [name for name in latest if not name.startswith("codex:")],
+            "checked_codex_names": [name[6:] for name in latest if name.startswith("codex:")],
+            "unchecked_names": [name for name in targets if name not in latest and not name.startswith("codex:")],
+            "unchecked_codex_names": [name[6:] for name in targets if name not in latest and name.startswith("codex:")],
         }
 
     # ---- Helpers ----

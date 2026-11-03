@@ -23,6 +23,13 @@ templates/.bridge-key
 templates/.bridge-keys-prev.json
 templates/.bridge-rotation.json
 templates/translate-config.json
+templates/codex-sync.json
+templates/codex-sources.json
+templates/external_sources.json
+templates/network-config.json
+sources.json
+sources.json.bak*
+templates/install-queue.json.bak*
 .env
 *.pem
 *.key

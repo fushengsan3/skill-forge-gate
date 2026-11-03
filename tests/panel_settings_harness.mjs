@@ -117,9 +117,9 @@ setTimeout(() => {
 
     // ---- 模型清单 ----
     const models = $$('#model-list .model-card');
-    check('S5 渲染出 3 个模型（来自 Claude Code 配置）', models.length === 3, models.length + ' 个');
+    check('S5 显示已配置的 DeepSeek 模型及默认模型', models.length >= 3, models.length + ' 个');
     const ids = models.map((m) => m.querySelector('.mc-id').textContent);
-    check('S6 模型 ID 正确', ids.join(',') === MODELS_RESPONSE.models.map((m) => m.id).join(','),
+    check('S6 模型只显示已授权的 DeepSeek 服务', ids.every(id => id.startsWith('deepseek-')) && ids.includes('deepseek-flash'),
       ids.join(', '));
     const badged = models.filter((m) => m.querySelector('.mc-badge'));
     check('S7 "当前使用"的模型有角标', badged.length === 1

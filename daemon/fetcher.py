@@ -5,6 +5,7 @@
 """
 import json
 import os
+import re
 import sys
 import urllib.request
 from datetime import datetime
@@ -80,14 +81,7 @@ def github_headers() -> dict:
         "Accept": "application/vnd.github.v3+json",
         "User-Agent": "skill-forge/1.0",
     }
-    try:
-        from daemon import credentials
-        token = credentials.get_secret(credentials.GITHUB_TOKEN)
-        if token:
-            headers["Authorization"] = "Bearer " + token
-    except Exception:
-        # 凭据模块不可用（非 Windows / 缺 pywin32）不该让拉取失败 —— 退回匿名请求
-        pass
+    # 用户要求密钥仅用于已授权的 DeepSeek 接口；GitHub 请求始终匿名。
     return headers
 
 
@@ -117,8 +111,8 @@ def fetch_jeremylongshore() -> list:
             plugin_url = f"https://raw.githubusercontent.com/jeremylongshore/claude-code-plugins-plus-skills/main/plugins/{item['name']}/plugin.json"
             try:
                 set_proxy()
-                proxy_handler = urllib.request.ProxyHandler({"https": PROXY, "http": PROXY})
-                opener = urllib.request.build_opener(proxy_handler)
+                from daemon import net
+                opener = net.build_opener()
                 req = urllib.request.Request(plugin_url, headers={"User-Agent": "skill-forge/1.0"})
                 with opener.open(req, timeout=15) as resp:
                     plugin = json.loads(resp.read().decode())
@@ -247,7 +241,8 @@ def fetch_latest_shas(installed: dict, branch_default: str = "main") -> dict:
     """
     from concurrent.futures import ThreadPoolExecutor
 
-    targets = []
+    from urllib.parse import quote
+    targets = {}
     for name, info in (installed or {}).items():
         if not isinstance(info, dict) or info.get("self"):
             continue                      # 自己不查自己
@@ -255,91 +250,143 @@ def fetch_latest_shas(installed: dict, branch_default: str = "main") -> dict:
         full = info.get("full_name") or _extract_github_fullname(url)
         if not full or "/" not in full:
             continue
-        targets.append((name, full, info.get("branch") or branch_default))
+        full = full.removesuffix(".git")
+        key = (full, info.get("branch") or branch_default)
+        targets.setdefault(key, []).append(name)
 
     def one(item):
-        name, full, branch = item
+        full, branch = item
         # 再剥一次 .git（full_name 字段可能是手写进 sources.json 的）
         if full.endswith(".git"):
             full = full[:-4]
-        url = f"https://api.github.com/repos/{full}/commits/{branch}"
-        result = api_get(url)
+        url = f"https://api.github.com/repos/{full}/commits/{quote(branch, safe='')}"
+        try:
+            result = api_get(url)
+        except Exception:
+            return item, ""
         if not result["ok"]:
-            return name, ""
+            return item, ""
         sha = (result.get("data") or {}).get("sha", "")
-        return name, sha
+        return item, sha
 
     out = {}
     if not targets:
         return out
     # 几个线程就够 —— 数量是"装过的 skill 数"，不是发现总数
     with ThreadPoolExecutor(max_workers=4) as ex:
-        for name, sha in ex.map(one, targets):
+        for key, sha in ex.map(one, targets):
             if sha:
-                out[name] = sha
+                for name in targets[key]:
+                    out[name] = sha
     return out
 
 
-def fetch_external_sources() -> list:
+def fetch_external_sources(with_report=False):
     """从外部数据源拉取 skill（读取 templates/external_sources.json）"""
     import json as _json
     sources_file = SKILL_ROOT / "templates" / "external_sources.json"
+    def result(skills, errors):
+        return {'skills': skills, 'errors': errors} if with_report else skills
     if not sources_file.exists():
-        return []
+        return result([], [])
 
     try:
         config = _json.loads(sources_file.read_text(encoding="utf-8"))
     except Exception:
-        return []
+        return result([], [{'label':'来源配置', 'error':'配置文件无法读取'}])
 
+    if not isinstance(config, dict):
+        return result([], [{'label':'来源配置', 'error':'配置格式无效'}])
     ext_sources = config.get("sources", [])
+    if not isinstance(ext_sources, list):
+        return result([], [{'label':'来源配置', 'error':'来源列表格式无效'}])
     if not ext_sources:
-        return []
+        return result([], [])
 
     skills = []
+    errors = []
     for es in ext_sources:
+        if not isinstance(es, dict):
+            errors.append({'label':'来源', 'error':'来源格式无效'})
+            continue
         url = es.get("url", "")
         label = es.get("label", "")
         # 出事的时侯总得知道是**哪个源** —— label 优先，没有就用抹掉凭据的 URL。
         who = label or _redact_url(url)
         try:
-            result = api_get(url)
-            if not result["ok"]:
+            from urllib.parse import urlsplit
+            parsed = urlsplit(url)
+            if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+                log(f"外部源未读取（{who}）：隐私模式仅允许无凭据和查询参数的 HTTPS 地址")
+                errors.append({'label':label or '外部源', 'error':'仅支持不含凭据或查询参数的 HTTPS 地址'})
+                continue
+            request_url = url
+            if parsed.hostname.lower() == 'github.com':
+                parts = parsed.path.strip('/').split('/')
+                if len(parts) != 2 or any(not re.fullmatch(r'[A-Za-z0-9_.-]+', part) for part in parts):
+                    errors.append({'label':label or 'GitHub 仓库', 'error':'请输入 GitHub 仓库主页地址'})
+                    continue
+                request_url = 'https://api.github.com/repos/' + parts[0] + '/' + parts[1].removesuffix('.git')
+            response = api_get(request_url)
+            if not response["ok"]:
                 # 以前这里是裸 `continue`：源挂了 / 403 / 429 与
                 # "这个源本来就没数据"在最终结果里**完全一样**，
                 # 只看到"本轮发现 0 个新 skill"，无从判断是不是源全挂了。
-                log(f"外部源拉取失败（{who}）：{_redact_url(result.get('reason') or '未知原因')}")
+                log(f"外部源拉取失败（{who}）：{_redact_url(response.get('reason') or '未知原因')}")
+                status = re.search(r'HTTP Error (\d{3})', str(response.get('reason', '')))
+                errors.append({'label':label or '外部源', 'error':('HTTP ' + status.group(1)) if status else '连接失败或响应不是有效 JSON'})
                 continue
-            data = result["data"]
+            data = response["data"]
             # 支持两种格式：GitHub API repo 对象 或 通用 skill 列表
             if isinstance(data, list):
                 items = data
             elif isinstance(data, dict):
-                items = data.get("items", data.get("skills", data.get("repos", [])))
+                if data.get('name') and (data.get('html_url') or data.get('url')):
+                    items = [data]
+                else:
+                    items = data.get("items", data.get("skills", data.get("repos")))
             else:
+                items = None
+
+            if not isinstance(items, list):
+                errors.append({'label':label or '外部源', 'error':'JSON 格式不支持：需要列表或 items、skills、repos 列表'})
                 continue
 
+            invalid = 0
             for item in items[:30]:  # 每个源最多 30 条
+                if not isinstance(item, dict):
+                    invalid += 1
+                    continue
                 skill = normalize_skill(item, source="external", label=label)
-                if skill:
+                if item.get('html_url'):
+                    skill['url'] = item['html_url']
+                if skill.get('name') and skill.get('url'):
                     skills.append(skill)
+                else:
+                    invalid += 1
+            if invalid:
+                errors.append({'label':label or '外部源', 'error':f'{invalid} 条记录缺少名称或地址，已跳过'})
         except Exception as e:
             # 只记类型，不记 e 全文（同 translate_ai.py:107 的理由：
             # 异常文本里可能带着请求头）。
             log(f"外部源处理失败（{who}）：{type(e).__name__}")
+            errors.append({'label':label or '外部源', 'error':'来源数据处理失败'})
             continue
 
-    return skills
+    return result(skills, errors)
 
 
 def normalize_skill(raw: dict, source: str = "external", label: str = "") -> dict:
     """将不同来源的原始数据规范化为统一 skill 格式"""
+    source_url = raw.get('source_url') or ''
+    if isinstance(source_url, str) and source_url.startswith('https://github.com/'):
+        source_url = _extract_github_repo(source_url)
     return {
         "name": raw.get("name") or raw.get("skill_name") or raw.get("repo") or "",
         "full_name": raw.get("full_name") or raw.get("repo") or raw.get("url") or "",
         "description": raw.get("description") or raw.get("desc") or "",
         "stars": raw.get("stars") or raw.get("stargazers_count") or raw.get("score") or 0,
-        "url": raw.get("url") or raw.get("html_url") or raw.get("repo_url") or "",
+        "url": raw.get("url") or raw.get("html_url") or raw.get("repo_url") or source_url or "",
         # R1：三个时间字段分开保留。
         # 这里原先是 `updated_at or pushed_at` —— 把"代码推送"和"元数据变动"
         # 混成了同一个值，正是决策记录要求区分的两个量，所以拆开。
@@ -402,6 +449,61 @@ def fetch_all_sources(search_query: str = None, top: int = None, include_externa
     return deduped
 
 
+def search_claudskills(tags) -> dict:
+    """Find matching skills in the public catalog when GitHub search is unavailable."""
+    from daemon import privacy
+    if not isinstance(tags, list) or not tags or any(tag not in privacy.CAPABILITY_TERMS for tag in tags):
+        return {'ok':False, 'skills':[], 'error':'公开目录搜索标签无效'}
+    try:
+        response = api_get('https://claudskills.com/data/skills.json')
+    except Exception:
+        response = {'ok':False}
+    if not response.get('ok'):
+        return {'ok':False, 'skills':[], 'error':'公开目录连接失败'}
+    data = response.get('data')
+    items = data.get('skills') if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return {'ok':False, 'skills':[], 'error':'公开目录格式无效'}
+    desired, skills, seen = set(tags), [], set()
+    for item in items:
+        if not isinstance(item, dict): continue
+        content = str(item.get('name') or '') + ' ' + str(item.get('description') or '')
+        if not desired.intersection(privacy.capability_tags(content)): continue
+        skill = normalize_skill(item, source='claudskills')
+        if not skill.get('name') or not skill.get('url') or skill['url'] in seen: continue
+        seen.add(skill['url'])
+        skills.append(skill)
+        if len(skills) >= 100: break
+    return {'ok':True, 'skills':skills, 'error':''}
+
+
+def search_online(tag: str) -> dict:
+    """Search public GitHub with a single privacy-approved capability label."""
+    from urllib.parse import urlencode
+    from daemon import privacy
+    if tag not in privacy.CAPABILITY_TERMS:
+        return {'ok':False, 'skills':[], 'error':'搜索标签无效'}
+    query = urlencode({'q':tag + ' skill in:name,description', 'sort':'stars', 'per_page':30})
+    try:
+        response = api_get('https://api.github.com/search/repositories?' + query)
+    except Exception:
+        return {'ok':False, 'skills':[], 'error':'GitHub 连接失败'}
+    if not response.get('ok'):
+        status = re.search(r'HTTP Error (\d{3})', str(response.get('reason', '')))
+        return {'ok':False, 'skills':[], 'error':'GitHub ' + ('HTTP ' + status.group(1) if status else '连接失败')}
+    data = response.get('data')
+    if not isinstance(data, dict) or not isinstance(data.get('items'), list):
+        return {'ok':False, 'skills':[], 'error':'GitHub 返回格式无效'}
+    skills = []
+    for item in data['items']:
+        if not isinstance(item, dict) or not item.get('name') or not item.get('html_url'):
+            continue
+        skill = normalize_skill(item, source='search')
+        skill['url'] = item['html_url']
+        skills.append(skill)
+    return {'ok':True, 'skills':skills, 'error':''}
+
+
 def search_skills(query: str, top: int = 10, page: int = 1) -> list:
     """关键词搜索 skill（用于用户需求快速通道 + 板块扩搜）。
 
@@ -410,6 +512,11 @@ def search_skills(query: str, top: int = 10, page: int = 1) -> list:
     默认 1，老调用方不受影响。
     """
     import urllib.parse
+    from daemon import privacy
+    tags = privacy.capability_tags(query)
+    if not tags:
+        return []
+    query = ' '.join(tags)
     url = (f"https://api.github.com/search/repositories"
            f"?q={urllib.parse.quote(query)}+topic:claude-code-skill"
            f"&sort=stars&order=desc&per_page={top}&page={page}")

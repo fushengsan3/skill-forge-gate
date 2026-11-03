@@ -53,7 +53,8 @@ for name, info in data.items():
             try:
                 status = subprocess.run(
                     ['git', '-C', str(skill_path), 'status', '--porcelain'],
-                    capture_output=True, text=True, timeout=10
+                    capture_output=True, text=True, timeout=10,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
                 )
                 entry['local_changes'] = bool(status.stdout.strip())
             except (TimeoutExpired, Exception):
@@ -78,7 +79,8 @@ for name, info in data.items():
             try:
                 result = subprocess.run(
                     ['git', 'ls-remote', remote_url, f'refs/heads/{branch}'],
-                    capture_output=True, text=True, timeout=15
+                    capture_output=True, text=True, timeout=15,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
                 )
 
                 if result.returncode == 0 and result.stdout.strip():

@@ -2,6 +2,11 @@
 # 更新一个 skill 到最新版本
 # 用法: update.sh <skill_name> [--dry-run]
 set -euo pipefail
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=Never GIT_LFS_SKIP_SMUDGE=1
+unset GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_ASKPASS SSH_ASKPASS
+for sf_proxy in "${SKILL_FORGE_PROXY:-}" "${http_proxy:-}" "${https_proxy:-}" "${HTTP_PROXY:-}" "${HTTPS_PROXY:-}"; do
+    case "$sf_proxy" in *://*@*) echo '隐私模式下不发送代理凭据' >&2; exit 1;; esac
+done
 
 # 代理不再写死（见 安装部署说明.md §3）：设了 SKILL_FORGE_PROXY 才走代理。
 if [ -n "${SKILL_FORGE_PROXY:-}" ]; then
@@ -154,5 +159,12 @@ data['$SKILL_NAME']['installed_sha'] = '$NEW_SHA'
 data['$SKILL_NAME']['updated_at'] = '$(date -u +%Y-%m-%dT%H:%M:%SZ)'
 open('$SOURCES_FILE','w').write(json.dumps(data, ensure_ascii=False, indent=2))
 "
+
+# 同步到 Codex：只在本机启用后生效，错误单独报告，不把安装成功说成失败。
+if [[ -f "$SKILL_FORGE/daemon/codex_sync.py" && -f "$SKILL_FORGE/templates/codex-sync.json" ]]; then
+    (cd "$SKILL_FORGE" && python3 -m daemon.codex_sync \
+        --skills-root "$SKILLS_ROOT" --forge-root "$SKILL_FORGE" "$SKILL_NAME") >&2 \
+        || echo 'Codex 同步未完成，可运行 python -m daemon.codex_sync 重试。' >&2
+fi
 
 echo "{\"ok\": true, \"name\": \"$SKILL_NAME\", \"old_sha\": \"$OLD_SHA\", \"new_sha\": \"$NEW_SHA\", \"backup\": \"$BACKUP_PATH\"}"

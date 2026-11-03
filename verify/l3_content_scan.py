@@ -410,7 +410,7 @@ def compute_verdict(findings_list: list, coverage: dict = None,
             unreadable.append({"file": f.get("file", ""), "error": f["unreadable"]})
             continue
         findings = f.get("findings", {}) or {}
-        red = findings.get("red", [])
+        red = [dict(hit, file=f.get("file", "")) for hit in findings.get("red", [])]
         if f.get("source_kind") == "doc":
             red_doc.extend(red)
         else:

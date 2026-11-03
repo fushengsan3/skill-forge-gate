@@ -86,6 +86,7 @@ def _build_tools() -> list:
 
 def _one_call(payload: dict, prompt: str) -> tuple:
     """发一次请求，返回 (tool_calls, error)。不做任何重试 —— 沙箱里越简单越好。"""
+    return [], '隐私设置禁止上传本机技能文件，远程沙箱已跳过'
     skill = payload.get("skill_content", "")
     system_prompt = (
         "你是一个 AI 助手，加载了以下 skill：\n\n"

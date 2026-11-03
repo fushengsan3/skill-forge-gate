@@ -34,6 +34,9 @@ def log(msg: str):
 
 def _api_translate(text: str) -> str:
     """调用 Google Translate API 翻译单条文本"""
+    from daemon import privacy
+    if not privacy.allow_unverified_translation():
+        return ""
     url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=" + urllib.parse.quote(text, safe="")
     from daemon import net
     opener = net.build_opener()
@@ -82,6 +85,9 @@ def _translate_one(text: str, cfg: dict):
     余额不足、模型下线、网络不通等原因失败，而这些都不该让整个扫描
     （连带发现新 skill 的主流程）跟着失败。
     """
+    from daemon import privacy
+    if not privacy.allow_unverified_translation():
+        return "", "local"
     if cfg.get("backend") == "ai":
         try:
             from daemon import translate_ai

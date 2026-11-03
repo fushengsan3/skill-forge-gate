@@ -35,6 +35,9 @@ const dom = new JSDOM(html, {
     window.fetch = (url, opts) => {
       const u = String(url);
       const method = (opts && opts.method) || 'GET';
+      if (method === 'POST' && /:\d+\/$/.test(u)) {
+        return Promise.resolve({ json: () => Promise.resolve({ok:true}) });
+      }
       if (u.indexOf('install') >= 0 && method === 'POST') {
         installPosted = true;
         installedResult = AFTER;      // 模拟 bridge 真的改了 sources.json
@@ -65,7 +68,7 @@ setTimeout(() => {
   const callsBefore = installedCalls;
 
   // 加入队列并安装（queueInstall / triggerInstall 都是函数声明，挂在 window 上）
-  w.queueInstall('gamma-skill', 'https://github.com/a/gamma', false);
+  w.queueInstall('gamma-skill', 'https://github.com/a/gamma', {branch:'main', preview_sha:'a'.repeat(40), selected_modules:[{path:'.',target:'claude'}]});
   w.triggerInstall();
 
   setTimeout(() => {

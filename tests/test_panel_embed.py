@@ -113,7 +113,7 @@ def main():
         # 所以新增字段时**必须同步改这里** —— 2026-10-06 加 `trust_level`（D1）
         # 时就撞上了它，那是它在正常工作，不是它碍事。
         fields = {"name", "type", "url", "installed_sha", "installed_at", "is_self",
-                  "trust_level", "subpath", "trust_note"}
+                  "trust_level", "subpath", "trust_note", "tool"}
         got = set(embedded["_installed"][0].keys()) if embedded and embedded["_installed"] else set()
         check(got == fields, "嵌入名单字段与 bridge 一致", f"{sorted(got)}")
 

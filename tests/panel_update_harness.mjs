@@ -16,12 +16,16 @@ function check(name, ok, detail) {
 // 已装名单里有两个：一个无更新，一个有更新。
 // 第三个 "plain-new" 没装过 —— 三种状态各来一个，才能验"按钮不是只有一种"。
 const INSTALLED = [
+  { name: 'installed-only', installed_sha: 'aaaa1111', type: 'skill' },
   { name: 'plain-installed', installed_sha: 'aaaa1111', installed_at: '2026-01-01T00:00:00', type: 'skill' },
   { name: 'has-update', installed_sha: 'bbbb2222', installed_at: '2026-02-01T00:00:00', type: 'skill' },
 ];
 
 let updatePost = null;       // 记下 POST /update 的 body
 let updateCalls = 0;
+let rejectChecks = false;
+let updatedChildren = [];
+let updateResponse = { ok: true, checked: 2, targets: 2, count: 1, partial: false, updates: [{name: 'has-update', installed_sha: 'bbbb2222', latest_sha: 'cccc3333'}], checked_names: ['plain-installed', 'has-update'] };
 
 const dom = new JSDOM(html, {
   runScripts: 'dangerously',
@@ -38,16 +42,16 @@ const dom = new JSDOM(html, {
         try { updatePost = JSON.parse(opts.body || '{}'); } catch (e) { updatePost = null; }
         return Promise.resolve({
           json: () => Promise.resolve({
-            ok: true, name: 'has-update', sha: 'cccc3333',
+            ok: true, name: 'has-update', sha: 'cccc3333', updated_skills: updatedChildren,
             verify: { summary: '4 层通过，1 层跳过（L5 沙箱）',
                       layers: [{ name: 'L5 沙箱', verdict: 'SKIPPED' }] },
           }),
         });
       }
       if (u.indexOf('updates') >= 0) {
+        if (rejectChecks) return Promise.reject(new Error('offline'));
         return Promise.resolve({
-          json: () => Promise.resolve({ ok: true, checked: 2, targets: 2, partial: false,
-                                        count: 1, updates: [], cached: false }),
+          json: () => Promise.resolve(updateResponse),
         });
       }
       if (u.indexOf('installed') >= 0) {
@@ -79,6 +83,8 @@ const badgeTexts = (n) => {
 };
 
 setTimeout(() => {
+  check('手动检查更新入口可见', !!d.getElementById('btn-check-updates'));
+  check('已安装列表提供更新操作', !!d.querySelector('#installed-list .btn-update'));
   // ---- 1. 按钮四态 -------------------------------------------------
   check('① 未安装 → 「📦 一键安装」', btnText('plain-new').indexOf('一键安装') >= 0, btnText('plain-new'));
   check('② 已装且无更新 → 「🔄 重装」', btnText('plain-installed').indexOf('重装') >= 0, btnText('plain-installed'));
@@ -118,7 +124,7 @@ setTimeout(() => {
   // ---- 4. 点「更新到最新」真的发请求 --------------------------------
   if (b2) b2.dispatchEvent(new w.Event('click'));
 
-  setTimeout(() => {
+  setTimeout(async () => {
     check('⑬ 点击发出了 POST /update', updateCalls === 1, String(updateCalls));
     check('⑭ 请求体只有 name', updatePost && updatePost.name === 'has-update'
           && Object.keys(updatePost).length === 1, JSON.stringify(updatePost));
@@ -130,6 +136,30 @@ setTimeout(() => {
     check('⑯ 更新成功后按钮变成「重装」（有更新状态已清）',
           btnText('has-update').indexOf('重装') >= 0, btnText('has-update'));
 
+    check('更新完成同步统计数字', d.getElementById('stat-update').textContent === '0');
+    updateResponse = { ok: true, checked: 3, targets: 3, count: 1, partial: false,
+      updates: [{name: 'installed-only', installed_sha: 'aaaa1111', latest_sha: 'dddd4444'}],
+      checked_names: ['plain-installed', 'has-update', 'installed-only'] };
+    await w.checkUpdates(false);
+    const hidden = Array.from(d.querySelectorAll('.installed-item')).find(el => el.textContent.includes('installed-only'));
+    check('发现列表之外的已安装技能也有更新按钮', hidden && hidden.querySelector('.btn-update').textContent.includes('更新到最新'));
+    check('统计包含发现列表之外的更新', d.getElementById('stat-update').textContent === '1');
+    updateResponse = {ok: true, checked: 1, targets: 3, count: 0, partial: true, updates: [], checked_names: ['plain-installed']};
+    await w.checkUpdates(false);
+    check('部分查询失败时保留未查询项目的状态', d.getElementById('stat-update').textContent === '1');
+    updateResponse = {ok: true, checked: 3, targets: 3, count: 0, partial: false, updates: [], checked_names: ['plain-installed', 'has-update', 'installed-only']};
+    await w.checkUpdates(false);
+    check('重新检查后清掉过时的更新状态', d.getElementById('stat-update').textContent === '0');
+    updateResponse = {ok: true, checked: 3, targets: 3, count: 2, partial: false,
+      updates: [{name: 'has-update'}, {name: 'installed-only'}], checked_names: ['plain-installed', 'has-update', 'installed-only']};
+    await w.checkUpdates(false);
+    updatedChildren = ['installed-only'];
+    await w.updateSkill('has-update', null);
+    await new Promise(resolve => setTimeout(resolve, 80));
+    check('集合更新后同步清除子技能更新状态', d.getElementById('stat-update').textContent === '0');
+    rejectChecks = true;
+    await w.checkUpdates(false);
+    check('断网后显示错误且检查按钮可重试', d.getElementById('update-status').textContent.includes('offline') && !d.getElementById('btn-check-updates').disabled);
     const failed = results.filter((r) => !r.ok);
     for (const r of results) {
       console.log((r.ok ? '  [PASS] ' : '  [FAIL] ') + r.name + (r.detail ? ' — ' + r.detail : ''));

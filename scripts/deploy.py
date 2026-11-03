@@ -118,7 +118,8 @@ def _git_z(src: Path, args, timeout: int = 30):
     """
     try:
         proc = subprocess.run(["git", "-C", str(src)] + list(args),
-                              capture_output=True, timeout=timeout)
+                              capture_output=True, timeout=timeout,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except FileNotFoundError:
         return None, "没找到 git", False
     except (OSError, subprocess.SubprocessError) as e:

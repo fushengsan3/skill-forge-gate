@@ -100,6 +100,10 @@ def run_docker_sandbox(skill_path: str, test_prompts: list) -> dict:
     至于要不要因此拦住安装，那是调用方（daemon/precheck.py）的判断，
     那边对缺前置是按「跳过」处理的 —— 而**跳过不等于通过**。
     """
+    from daemon import privacy
+    if not privacy.allow_remote_audit():
+        return {"sandbox_type": "docker", "skill": Path(skill_path).name,
+                "verdict": "SKIPPED", "error": "隐私设置禁止上传本机技能文件，L5 已跳过"}
     skill_path = Path(skill_path).resolve()
     skill_name = skill_path.name
     image = "skill-forge-sandbox:latest"
@@ -145,6 +149,7 @@ def run_docker_sandbox(skill_path: str, test_prompts: list) -> dict:
             # 于是一次**成功**的 build 会因为 check=True 变成 CalledProcessError，
             # 报成"docker build 失败"。见 daemon/installer.py 的 run() 那条注释。
             capture_output=True, text=True, errors="replace", timeout=180, check=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except FileNotFoundError:
         return skip("找不到 docker 命令 —— 这台机器没装 Docker 或不在 PATH 里")
@@ -216,11 +221,13 @@ def run_docker_sandbox(skill_path: str, test_prompts: list) -> dict:
         # returncode 变成错的 1，而下面正是拿 returncode 判"容器退出码非零"——
         # 于是一次成功的审计会被报成失败。
         proc = subprocess.run(cmd, input=payload, capture_output=True,
-                              text=True, errors="replace", timeout=900)
+                              text=True, errors="replace", timeout=900,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except subprocess.TimeoutExpired:
         # 别把容器留在后台跑
         subprocess.run(["docker", "kill", container_name],
-                       capture_output=True, text=True, errors="replace", timeout=30)
+                       capture_output=True, text=True, errors="replace", timeout=30,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return fail("docker run 超时（900 秒），容器已强制结束")
 
     if proc.returncode != 0:
