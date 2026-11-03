@@ -76,19 +76,68 @@ python -m daemon.codex_sync --enable
 
 Windows 后台任务以隐藏窗口方式启动，减少检查更新、安装和更新时的 CMD 弹窗；密钥录入使用可见的系统原生密码框。
 
-## 开始使用
+## 安装环境与开始使用
 
-准备 Windows 10 / 11、Python 和 Git，然后在 PowerShell 中执行：
+### 必需环境
+
+| 项目 | 需要配置什么 |
+|---|---|
+| 操作系统 | **Windows 10 / 11**；当前完整工作流在 Windows 上验证 |
+| Python | **Python 3.12 为已验证环境**；安装时勾选加入 PATH，确保 `python` 和 `pythonw` 来自同一套安装 |
+| Git | 安装 **Git for Windows**，确保 PowerShell 中可运行 `git`；使用 `SKILL.md` 中的 `.sh` 脚本时，还需 Git Bash 中的 `bash` 和可用的 `python3` 命令 |
+| 浏览器 | 使用支持现代 JavaScript 的浏览器打开本地 HTML 面板；无需额外部署网页服务器 |
+| PowerShell | 使用 Windows 自带的 PowerShell；后台任务注册与原生密钥录入会用到它 |
+| 目录与端口 | 当前用户能写入 `~/.claude/skills/skill-forge`；面板操作需要本地服务监听 `127.0.0.1:18970`，该端口不能被其他程序占用 |
+| 网络 | 发现、安装和更新需要访问 GitHub 及所选数据源；使用 DeepSeek 时还需直连其官方 HTTPS 接口。代理配置见安装说明 |
+
+要在 AI 工具中实际调用安装的技能，还需自行安装并配置 **Claude Code 或 Codex**，按需要选一个或两个。只浏览工作台不要求两个工具同时安装；技能自身需要的运行环境、插件或账户仍应按该技能说明配置。
+
+### 按功能选配
+
+| 想使用的功能 | 额外配置 |
+|---|---|
+| 保存 GitHub / DeepSeek 密钥 | 安装 `pywin32`，启用 Windows 凭据管理器读写 |
+| L3 敏感路径策略检查 | 安装 `pyyaml`；缺少时报告会提示对应策略未生效 |
+| 提高 GitHub API 可用额度 | 可选配置 GitHub Token；日常读取用途无需授予仓库写权限 |
+| 模块翻译与模型辅助搜索 | 配置 DeepSeek API 密钥、选择模型及 DeepSeek 后端；两项功能共用密钥，按服务商计费 |
+| 面板持续可操作 | 配置常驻桥接服务 `SkillForgeBridge`；首次扫描临时启动的服务会在五分钟后结束 |
+| 登录后定期发现技能 | 可选注册 `SkillForgeWatcher` 任务；注册需要相应任务计划权限，日常面板操作无需管理员运行 |
+
+**无需安装本地大模型。** Claude Code / Codex 的登录状态不等于已配置 DeepSeek API。日常使用无需 Node.js；Node.js 与 `jsdom` 只用于面板开发测试。L5 当前按隐私策略跳过，无需为其安装 Docker。
+
+### 安装与首次启动
+
+先在 PowerShell 中检查命令是否可用：
+
+```powershell
+python --version
+python -m pip --version
+git --version
+Get-Command python, pythonw, git
+```
+
+然后克隆到固定目录：
 
 ```powershell
 git clone https://github.com/fushengsan3/skill-forge-gate.git "$env:USERPROFILE\.claude\skills\skill-forge"
 Set-Location "$env:USERPROFILE\.claude\skills\skill-forge"
+```
+
+需要密钥管理和敏感路径策略检查时，在同一套 Python 环境中安装这两个可选依赖：
+
+```powershell
+python -m pip install pywin32 pyyaml
+```
+
+启动首次扫描：
+
+```powershell
 python daemon\watchdog.py
 ```
 
-请保留目标目录名 `skill-forge`。首次扫描完成后，打开生成的 `discover/latest.html` 即可浏览面板。安装、更新、设置保存等操作需要本地桥接服务在线；首次扫描临时启动的服务会在五分钟后结束。
+请保留目录名 `skill-forge`。扫描完成后，打开生成的 `discover/latest.html`。面板显示「本地服务已连接」时，才可执行安装、更新与设置保存等操作；仅打开 HTML 不会自动启动服务。
 
-按 [安装与部署说明](安装部署说明.md) 配置常驻服务和开机自启，即可持续使用面板操作。使用密钥管理功能需安装 `pywin32`；审计策略解析可安装 `pyyaml`。日常使用不需要 Node.js，当前隐私策略下也不需要为 L5 配置 Docker。
+按 [安装与部署说明](安装部署说明.md) 配置常驻桥接和可选的登录扫描任务。GitHub Token 与 DeepSeek 密钥都从「设置 → 密钥」录入，无需创建 `.env`；选择 DeepSeek 后还需选择模型并保存。安装依赖或更换 Python 后，应重启桥接服务。
 
 ## 文档与反馈
 
@@ -138,4 +187,15 @@ GitHub Token 与 DeepSeek API 密钥存放在 **Windows 凭据管理器**，由�
 
 **`SKIPPED` 表示未执行，不是通过。** 面板安装会阻止 `REJECT` 和静态检查错误；`REVIEW` 项仍可安装，并记录有限信任状态和原因。因此，安装成功不等于所有检查均通过，更不等于安全认证。
 
-本项目由 AI 辅助开发，尚未经过专业安全审计。检查报告用于帮助判断风险；技能交给 Claude Code、Codex 或其他工具运行后，仍可能按该工具授予的权限读取文件、执行命令或联网，安装预检不提供运行时隔离。
+技能交给 Claude Code、Codex 或其他工具运行后，仍可能按该工具授予的权限读取文件、执行命令或联网，安装预检不提供运行时隔离。
+
+### AI 生成代码风险
+
+**本项目的代码由 AI 生成并持续迭代，配套测试与文档也包含 AI 生成内容，尚未经过独立的专业安全审计。** AI 生成、测试通过或界面显示安装成功，都不能作为代码正确或安全的保证。
+
+- **程序可能仍有缺陷**：逻辑、边界条件、依赖兼容与文件操作中的错误，可能导致安装失败、更新异常、配置覆盖或数据丢失；备份和回退机制也可能存在尚未发现的问题。
+- **测试可能遗漏同类错误**：代码与测试由 AI 编写时，可能共享相同的错误假设。已有测试覆盖特定场景，不能证明其他系统、版本或操作组合都可靠。
+- **安全检查可能误判**：检查规则本身也需要验证，可能漏掉恶意行为或误拒正常模块。尤其是当前未运行的 L5，不能被理解为已经提供沙箱隔离。
+- **AI 辅助内容可能不准确**：模块翻译、功能匹配和排序可能误解原意；安装前应结合仓库原文、模块要求和检查原因判断。
+
+首次使用宜先用少量、非关键技能验证安装与回退流程；涉及重要文件时保留独立备份。将本工具用于生产或敏感数据环境前，应由具备相应能力的人员审查相关代码与权限。不要仅凭 AI 推荐、安装成功或检查结果，向未知技能授予访问私人文件或执行高权限命令的能力。
