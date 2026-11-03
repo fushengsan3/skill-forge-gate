@@ -254,84 +254,164 @@ body { font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Trebuchet MS", san
 .model-card.disabled:hover { transform: none; border-color: var(--border); }
 .ai-warning { font-size: 12px; color: var(--accent); background: rgba(240,192,64,0.1); border: 1px solid rgba(240,192,64,0.35); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; line-height: 1.5; }
 
-/* Workspace presentation */
-.container { max-width: 1280px; padding: 32px 28px 80px; }
-.header { padding: 32px 36px; border-radius: 20px; background: #142c4b; color: #f7faff; gap: 28px; box-shadow: 0 12px 32px #142c4b12; }
-.brand-kicker { color: #9ab3d3; font-size: 10px; letter-spacing: 2px; margin-bottom: 18px; }
-.header h1 { display: flex; align-items: center; gap: 10px; font-family: "Trebuchet MS", "Microsoft YaHei", sans-serif; letter-spacing: -1px; font-size: 30px; }
-.brand-mark { display: inline-grid; place-items: center; background: #91bafa; color: #142c4b; font-size: 17px; letter-spacing: -1px; width: 40px; height: 40px; border-radius: 10px 10px 10px 2px; margin-right: 4px; }
-.brand-gate { color: #91bafa; font-weight: 400; }
-.header p { color: #c0cee0; margin-top: 14px; }
-.header .period-chip { background: #213d5d; border-color: #3e5673; color: #dbe7f8; }
-.stats { background: transparent; gap: 0; padding: 0; }
-.stat { min-width: 98px; padding: 8px 20px; border-left: 1px solid #3e5673; text-align: left; }
-.stat-title { color: #b8c9df; margin-bottom: 8px; }
-.stat-value { font-size: 34px; font-family: "Trebuchet MS", sans-serif; }
-.stat-value.new { color: #a8c9ff; }
-.stat-value.update { color: #f6ce84; }
-.stat-value.sources { color: #dbe7f8; max-width: 180px; line-height: 1.8; }
-.toolbar { gap: 9px; }
-.toolbar input, .toolbar select { min-height: 39px; background: #fff; padding: 8px 12px; }
-.toolbar input { max-width: none; min-width: 180px; }
-.btn, .lang-btn { min-height: 34px; border-radius: 8px; padding: 7px 12px; }
-.btn-ghost { background: #fff; border: 1px solid var(--border); color: var(--text-dim); }
-.btn:hover { filter: brightness(.96); }
-.btn:disabled { cursor: wait; opacity: .6; }
-.btn-update { background: #e6efff; color: #2253ab; border: 1px solid #cadbf7; }
-.service-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; border: 1px solid var(--border); background: #fff; border-radius: 12px; padding: 12px 16px; margin: 18px 0 24px; font-size: 12px; }
-.service-dot { width: 7px; height: 7px; border-radius: 50%; background: #ba8135; flex: 0 0 auto; }
-.service-dot.online { background: #258269; box-shadow: 0 0 0 4px #25826910; }
+/* 清爽工作台：主题颜色来自已确认的十套原创方案。 */
+:root { --bg: #f5f3f3; --paper: #fefefe; --ink: #2a2e39; --muted: #60646f; --accent: #313f60; --tint: #e4e8f1; --border: #dbd9db; --sidebar: #f5f0ef; --side-ink: #333947; --side-muted: #636873; --side-line: #dad6d7; --mark: #98a9d0; --mark-ink: #2a2e39; --heading: #e4e8f2; --selected: #f8f9fb; --button: #313f60; --button-ink: #ffffff; --nav: #d7deed; --nav-ink: #39496f; --nav-radius: 9px; --mark-radius: 6px; --elevation: 0 5px 18px #24324708; --rail-margin: 0; --rail-radius: 0; --rail-shadow: none; --radius: 14px; --bg-card: var(--paper); --bg-input: var(--tint); --text: var(--ink); --text-dim: var(--muted); --primary: var(--accent); --secondary: #a23b4d; --source-jl: #347089; --source-gh: #80621d; --source-cs: #78538a; --source-ext: #397653; --source-search: #995337; }
+[hidden] { display: none !important; }
+button, input, select { font: inherit; }
+button, a, select, input { -webkit-tap-highlight-color: transparent; }
+.workspace { display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: 100vh; }
+.workspace-sidebar { position: sticky; top: 0; height: calc(100vh - var(--rail-gap, 0px)); padding: 28px 18px 20px; margin: var(--rail-margin); border-radius: var(--rail-radius); box-shadow: var(--rail-shadow); background: var(--sidebar); color: var(--side-ink); border-right: 1px solid var(--side-line); display: flex; flex-direction: column; gap: 28px; }
+.workspace-brand { display: flex; align-items: center; gap: 10px; }
+.brand-mark { display: grid; place-items: center; background: var(--mark); color: var(--mark-ink); width: 36px; height: 36px; border-radius: var(--mark-radius); font-size: 15px; font-weight: 750; flex-shrink: 0; }
+.brand-name { font-size: 15px; font-weight: 700; letter-spacing: -.4px; }
+.brand-caption { color: var(--side-muted); font-size: 10px; letter-spacing: 1.6px; margin-top: 3px; }
+.nav-caption { color: var(--side-muted); font-size: 10px; letter-spacing: 1.2px; margin: 0 10px 12px; }
+.workspace-nav { display: grid; gap: 6px; }
+.nav-item { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 42px; padding: 10px 12px; border: 0; border-radius: var(--nav-radius); cursor: pointer; text-align: left; color: var(--side-ink); background: transparent; font-size: 13px; }
+.nav-item:hover { background: var(--nav); color: var(--nav-ink); }
+.nav-item.active { background: var(--nav); color: var(--nav-ink); font-weight: 650; }
+.nav-icon { width: 18px; font-size: 17px; text-align: center; flex-shrink: 0; }
+.nav-count { margin-left: auto; background: var(--nav); color: var(--nav-ink); border-radius: 8px; padding: 1px 6px; font-size: 10px; }
+.sidebar-foot { margin-top: auto; border-top: 1px solid var(--side-line); padding-top: 18px; }
+.theme-label { display: block; font-size: 11px; color: var(--side-muted); margin: 0 0 9px; }
+#theme-select { width: 100%; padding: 9px 10px; border-radius: var(--nav-radius); border: 1px solid var(--side-line); color: var(--side-ink); background: var(--sidebar); font-size: 12px; cursor: pointer; }
+.theme-swatches { display: flex; gap: 5px; margin: 12px 0; }
+.theme-swatches span { width: 18px; height: 6px; border-radius: 3px; border: 1px solid var(--side-line); }
+#theme-note { font-size: 10px; line-height: 1.6; color: var(--side-muted); }
+.sidebar-foot .nav-item { margin-top: 16px; }
+.container { min-width: 0; max-width: 1640px; width: 100%; padding: 28px 34px 70px; margin: 0 auto; }
+.workspace-topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 30px; font-size: 11px; color: var(--text-dim); }
+.workspace-tools { display: flex; gap: 6px; align-items: center; }
+.header { align-items: flex-start; margin-bottom: 22px; gap: 22px; }
+.header h1 { font-size: clamp(24px, 2.2vw, 32px); font-weight: 650; letter-spacing: -1px; line-height: 1.3; }
+.header p { font-size: 12px; line-height: 1.7; margin-top: 10px; }
+.stats { background: transparent; gap: 22px; padding: 5px 0; flex-shrink: 0; }
+.stat { text-align: left; min-width: 46px; }
+.stat-title { font-size: 10px; margin-bottom: 7px; }
+.stat-value, .stat-value.sources { font-size: 24px; color: var(--text); font-variant-numeric: tabular-nums; font-weight: 550; }
+.stat-value.new, .stat-value.update { color: var(--primary); }
+.service-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; border-bottom: 1px solid var(--border); padding: 0 0 17px; margin: 0 0 24px; font-size: 11px; }
+.service-dot { width: 6px; height: 6px; border-radius: 50%; background: #9a641f; flex: 0 0 auto; }
+.service-dot.online { background: #387355; }
 #service-status { font-weight: 600; }
 #update-status { color: var(--text-dim); flex: 1; }
 #btn-check-updates { margin-left: auto; white-space: nowrap; }
-.card { border: 1px solid var(--border); border-left-width: 3px; padding: 20px; box-shadow: 0 2px 4px #142c4b03; min-width: 0; }
-.card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px #142c4b0c; }
-.card-title { font-size: 16px; overflow-wrap: anywhere; }
-.card-desc { line-height: 1.8; margin-top: 9px; }
-.card-meta { gap: 10px; margin-top: 12px; }
-.card-actions { padding-top: 12px; border-top: 1px solid #edf2f8; }
-.badge-new { background: #e7efff; color: #2457ad; }
-.badge-update { background: #fff0d1; color: #895a0c; }
-.badge-installed { background: #e4f2ec; color: #266a55; }
-.badge { line-height: 1.7; }
-.source-chip.on { color: #182b46; }
-.section-board { margin: 30px 0; }
-.board-head { margin-bottom: 14px; }
-.board-title { font-size: 17px; letter-spacing: .2px; }
-.board-count { color: var(--text-dim); }
-.board-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.board-row .card { width: auto; min-width: 0; display: flex; flex-direction: column; }
-.board-row .card-actions { margin-top: auto; }
-.board-row .card-meta { margin-bottom: 14px; }
-.group-head { margin: 24px 0 8px; padding-bottom: 12px; }
-.group-title { font-size: 16px; }
-.installed-panel, .ext-sources-panel { padding: 22px; border: 1px solid var(--border); }
-.installed-item { gap: 18px; padding: 14px 0; }
-.installed-item > div:first-child { min-width: 0; overflow-wrap: anywhere; }
-.installed-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.installed-item .sha, .update-info code { font-family: Consolas, monospace; background: #eaf0f8; }
-.installed-note.stale { color: #89611e; }
-.toast { background: #203f62; box-shadow: 0 6px 24px #142c4b26; max-width: min(440px, 90vw); }
-.modal { box-shadow: 0 24px 64px #142c4b30; }
-:focus-visible { outline: 3px solid #5c92eb; outline-offset: 3px; }
-@media (max-width: 960px) { .board-row { grid-template-columns: repeat(2,minmax(0,1fr)); } .header { padding: 26px; } }
-@media (max-width: 600px) {
-  .container { padding: 14px 12px 72px; }
-  .header { padding: 24px 20px; border-radius: 14px; }
-  .header h1 { font-size: 25px; gap: 7px; }
-  .brand-kicker { letter-spacing: 1px; }
-  .stats { width: 100%; }
-  .stat { flex: 1; min-width: 0; padding: 6px 12px; }
-  .stat:first-child { padding-left: 0; border-left: 0; }
-  .stat-value { font-size: 28px; }
-  .board-row { grid-template-columns: minmax(0,1fr); }
-  .board-head { align-items: flex-start; gap: 8px; flex-direction: column; }
-  .toolbar select { flex: 1; min-width: 120px; }
-  .toolbar input { flex-basis: 100%; }
-  .installed-item { flex-wrap: wrap; }
-  .installed-actions { width: 100%; justify-content: flex-end; }
-  .ext-sources-panel .row { flex-wrap: wrap; }
+.workspace-columns { display: grid; grid-template-columns: minmax(0, 1fr) 310px; align-items: start; gap: 24px; }
+.workspace-feed { min-width: 0; }
+.toolbar { gap: 8px; margin-bottom: 12px; }
+.toolbar input, .toolbar select { min-height: 36px; background: var(--paper); padding: 8px 10px; border-radius: 7px; }
+.search-toolbar { flex-wrap: nowrap; background: var(--paper); border: 1px solid var(--border); border-radius: var(--radius); padding: 7px; box-shadow: var(--elevation); }
+.search-toolbar input { max-width: none; min-width: 0; width: 100%; border: 0; background: transparent; font-size: 13px; }
+.search-toolbar .btn { white-space: nowrap; }
+.btn, .lang-btn { min-height: 32px; border-radius: 7px; padding: 6px 11px; font-size: 12px; line-height: 1.5; }
+.btn-primary, .lang-btn.active { background: var(--button); color: var(--button-ink); }
+.btn-ghost { background: var(--paper); color: var(--text-dim); border: 1px solid var(--border); }
+.btn:disabled { cursor: not-allowed; opacity: .55; }
+.btn-update { background: var(--tint); color: var(--primary); border: 1px solid var(--border); }
+.btn-sm { min-height: 28px; padding: 4px 8px; font-size: 11px; }
+.card { border: 1px solid var(--border); border-left: 1px solid var(--border); padding: 18px 20px; box-shadow: var(--elevation); min-width: 0; }
+.card:hover { transform: translateY(-1px); box-shadow: var(--elevation); border-color: var(--primary); }
+.card-title { font-size: 15px; overflow-wrap: anywhere; }
+.card-desc { line-height: 1.8; margin-top: 9px; font-size: 12px; }
+.card-meta { gap: 7px; margin-top: 11px; }
+.card-actions { flex-wrap: wrap; padding-top: 11px; border-top: 1px solid var(--border); }
+.rating { font-size: 11px; }
+.badge { line-height: 1.6; font-weight: 500; }
+.badge-new { background: var(--tint); color: var(--primary); }
+.badge-update { background: #f5ebd6; color: #76551e; }
+.source-chip.on { color: var(--text); }
+.section-board { margin: 22px 0; }
+.board-head { margin-bottom: 12px; flex-wrap: wrap; }
+.board-title { font-size: 14px; }
+.board-count { font-size: 11px; }
+.board-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.board-row .card { background: var(--selected); }
+.group-head { margin: 16px 0 4px; padding-bottom: 10px; }
+.group-title { font-size: 14px; }
+.installed-panel, .ext-sources-panel { padding: 20px; border: 1px solid var(--border); box-shadow: var(--elevation); }
+.installed-item { gap: 12px; padding: 16px 0; flex-wrap: wrap; }
+.installed-item > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.installed-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+#installed-list { max-height: none !important; }
+.installed-item .sha, .update-info code { font-family: Consolas, monospace; background: var(--tint); }
+.installed-note.stale { color: #80621d; }
+.ext-sources-panel .row { flex-wrap: wrap; }
+.ext-sources-panel input { min-width: 120px; }
+.ext-sources-panel .source-item { gap: 8px; overflow-wrap: anywhere; }
+.module-inspector { position: sticky; top: 24px; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--paper); box-shadow: var(--elevation); overflow: hidden; }
+.inspector-head { background: var(--heading); border-bottom: 1px solid var(--border); padding: 17px 18px; font-size: 13px; font-weight: 600; }
+.inspector-empty { padding: 28px 20px; }
+.inspector-symbol { width: 42px; height: 42px; display: grid; place-items: center; background: var(--tint); color: var(--primary); border-radius: var(--mark-radius); font-size: 22px; margin-bottom: 18px; }
+.inspector-empty h3 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.inspector-empty p { font-size: 12px; line-height: 1.8; color: var(--text-dim); }
+.inspector-steps { margin-top: 26px; display: grid; gap: 12px; color: var(--text-dim); font-size: 11px; }
+.inspector-steps span { display: flex; gap: 10px; align-items: center; }
+.inspector-steps b { color: var(--primary); font-weight: 500; background: var(--tint); border-radius: 50%; width: 20px; height: 20px; text-align: center; line-height: 20px; }
+.module-dock { display: none; }
+.module-dock.open { display: block; }
+.module-inspector.has-preview > #inspector-placeholder { display: none; }
+.module-dock .modal { border: 0; border-radius: 0; box-shadow: none; max-height: calc(100vh - 65px); }
+.module-dock .modal-head { background: var(--heading); padding: 14px 16px; }
+.module-dock .modal-head h3 { font-size: 13px; }
+.module-dock .modal-body { padding: 0 15px 15px; }
+.module-dock .modal-foot { padding: 12px; gap: 6px; flex-wrap: wrap; }
+.module-dock .modal-foot .btn-primary { flex: 1; }
+.module-row { background: var(--selected); padding: 12px; border-radius: calc(var(--radius) * .7); }
+.module-title { font-size: 13px; }
+.module-targets { gap: 10px; }
+.module-targets input { accent-color: var(--primary); }
+.module-title .badge { background: var(--tint); color: var(--primary); font-size: 10px; }
+.modal-hint, .module-desc { line-height: 1.8; overflow-wrap: anywhere; }
+.module-dock .modal-hint { font-size: 11px; }
+.modal-overlay { background: #19222e66; }
+.modal { box-shadow: 0 24px 64px #19222e30; border-radius: var(--radius); }
+.choice.active, .model-card.active { background: var(--tint); }
+.status-pill.on { color: #286443; border-color: #a8c6b4; background: #eaf3ec; }
+.mc-badge, .period-chip.ready { background: var(--button); color: var(--button-ink); }
+.toast { background: var(--button); color: var(--button-ink); box-shadow: 0 6px 24px #19222e26; max-width: min(440px, 90vw); }
+.queue-badge { z-index: 1010; }
+.queue-badge button { width: auto; min-width: 48px; height: 42px; border-radius: var(--radius); padding: 0 15px; font-size: 12px; box-shadow: var(--elevation); }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.workspace-sidebar :focus-visible { outline-color: var(--side-ink); }
+@media (min-width: 1650px) { .board-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1200px) {
+  .workspace { grid-template-columns: 185px minmax(0, 1fr); }
+  .workspace-sidebar { padding: 24px 12px 18px; }
+  .container { padding: 26px 24px 70px; }
+  .workspace-columns { grid-template-columns: minmax(0, 1fr) 280px; gap: 18px; }
+  .stats { gap: 16px; }
+}
+@media (max-width: 1000px) {
+  .workspace-columns { grid-template-columns: minmax(0, 1fr); }
+  .module-inspector { display: none; }
+  .module-inspector.has-preview { display: block; position: fixed; top: 18px; right: 18px; bottom: 18px; width: 360px; max-width: calc(100vw - 36px); z-index: 1000; box-shadow: 0 16px 60px #19222e33; }
+  .module-dock, .module-dock .modal { height: 100%; max-height: 100%; }
+  .module-dock .modal-body { flex: 1; }
+}
+@media (max-width: 650px) {
+  .workspace { display: block; }
+  .workspace-sidebar { position: static; height: auto; margin: 0; border-radius: 0; padding: 16px; gap: 14px; border-right: 0; border-bottom: 1px solid var(--side-line); }
+  .workspace-brand { justify-content: center; }
+  .nav-caption, .brand-caption, .theme-swatches, #theme-note, .sidebar-foot .nav-icon { display: none; }
+  .workspace-nav { display: flex; gap: 4px; }
+  .nav-item { padding: 8px 6px; font-size: 11px; gap: 5px; justify-content: center; min-height: 36px; }
+  .nav-icon { display: none; }
+  .sidebar-foot { padding: 0; border: 0; display: flex; gap: 10px; align-items: center; }
+  .theme-label { margin: 0; white-space: nowrap; }
+  #theme-select { flex: 1; width: auto; }
+  .sidebar-foot .nav-item { margin: 0; width: auto; }
+  .container { padding: 20px 16px 70px; }
+  .workspace-topline { margin-bottom: 24px; }
+  .header { gap: 18px; }
+  .stats { gap: 24px; }
+  .stat-value, .stat-value.sources { font-size: 22px; }
+  .toolbar select { flex: 1; min-width: 100px; font-size: 11px; }
+  .search-toolbar .btn { padding: 7px 9px; font-size: 11px; }
+  .card { padding: 16px; }
   .card-header { flex-wrap: wrap; }
+  .installed-actions { width: 100%; }
+  .module-inspector.has-preview { inset: auto 10px 10px; width: auto; max-width: none; max-height: 78vh; }
+  .module-dock .modal { max-height: 78vh; }
   #update-status { flex-basis: 100%; order: 3; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } .card:hover { transform: none; } }
@@ -339,40 +419,38 @@ body { font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Trebuchet MS", san
 </style>
 </head>
 <body>
-<div class="container">
-  <div class="header">
-    <div>
-      <div class="brand-kicker">SKILL WORKSPACE / 本地技能工作台</div><h1><span class="brand-mark" aria-hidden="true">SF</span> Skill Forge <span class="brand-gate">Gate</span></h1>
-      <p id="header-subtitle">本周发现</p>
-      <!-- R3：期状态条 —— 显示当前渲染的是哪一期、是否冻结、有没有新一期可推进 -->
-      <div id="period-bar" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>
+<div class="workspace">
+  <aside class="workspace-sidebar" aria-label="工作台导航 / Workspace navigation">
+    <div class="workspace-brand"><span class="brand-mark" aria-hidden="true">SF</span><div><div class="brand-name">Skill Forge</div><div class="brand-caption">GATE / WORKSPACE</div></div></div>
+    <div><div class="nav-caption">WORKSPACE</div>
+      <nav class="workspace-nav">
+        <button class="nav-item active" id="btn-discover" data-view="discover" aria-current="page"><span class="nav-icon" aria-hidden="true">⌕</span><span data-lang="nav_discover">发现技能</span></button>
+        <button class="nav-item" id="btn-installed" data-view="installed"><span class="nav-icon" aria-hidden="true">▦</span><span data-lang="nav_installed">已安装</span><span id="installed-count" class="nav-count" style="display:none">0</span></button>
+        <button class="nav-item" id="btn-versions" data-view="versions"><span class="nav-icon" aria-hidden="true">↻</span><span data-lang="nav_versions">更新与回退</span></button>
+        <button class="nav-item" id="btn-ext-sources" data-view="sources"><span class="nav-icon" aria-hidden="true">⊞</span><span data-lang="nav_sources">数据源</span></button>
+      </nav>
     </div>
-    <div class="stats">
-      <div class="stat"><div class="stat-title" data-lang="new_found">新发现</div><div class="stat-value new" id="stat-new">-</div></div>
-      <div class="stat"><div class="stat-title" data-lang="updatable">可更新</div><div class="stat-value update" id="stat-update">-</div></div>
-      <div class="stat"><div class="stat-title" data-lang="sources">数据源</div><div class="stat-value sources" id="stat-sources">-</div></div>
+    <div class="sidebar-foot">
+      <label for="theme-select" class="theme-label" data-lang="theme_label">工作台配色</label>
+      <select id="theme-select" aria-describedby="theme-note"></select>
+      <div id="theme-swatches" class="theme-swatches" aria-hidden="true"></div>
+      <p id="theme-note" data-lang="theme_note">选择保存在本机浏览器</p>
+      <button class="nav-item" id="btn-settings"><span class="nav-icon" aria-hidden="true">⚙</span><span data-lang="settings">设置</span></button>
     </div>
-  </div>
-
-  <!-- 语言切换 + 外部数据源 -->
-  <div class="toolbar" style="margin-bottom:12px">
-    <button class="lang-btn active" id="btn-zh">中</button>
-    <button class="lang-btn" id="btn-en">EN</button>
-    <button class="btn btn-ghost btn-sm" id="btn-installed" style="margin-left:6px">📦 <span data-lang="installed_skills">已安装</span> <span id="installed-count" style="background:var(--accent);color:#000;border-radius:10px;padding:0 6px;font-size:11px;display:none">0</span></button>
-    <button class="btn btn-ghost btn-sm" id="btn-freeze">📌 <span data-lang="freeze">冻结本期</span></button>
-    <button class="btn btn-ghost btn-sm" id="btn-settings">⚙️ <span data-lang="settings">设置</span></button>
-    <span style="flex:1"></span>
-    <button class="btn btn-ghost btn-sm" id="btn-ext-sources" data-lang="ext_sources">📂 外部数据源</button>
-    <button class="btn btn-ghost btn-sm" id="btn-source-filters" data-lang="filter_sources">🔍 数据源筛选</button>
-  </div>
-
-  <div class="service-strip" role="status" aria-live="polite">
-    <span class="service-dot" id="service-dot"></span>
-    <span id="service-status" data-lang="service_connecting">正在连接本地服务…</span>
-    <span id="update-status"></span>
-    <button class="btn btn-primary" id="btn-check-updates" data-lang="check_updates">检查更新</button>
-  </div>
-
+  </aside>
+  <main class="container">
+    <div class="workspace-topline"><span>WORKSPACE <span aria-hidden="true"> / </span><span id="view-breadcrumb">发现技能</span></span><div class="workspace-tools"><button class="lang-btn active" id="btn-zh" aria-label="中文">中</button><button class="lang-btn" id="btn-en" aria-label="English">EN</button><button class="btn btn-ghost btn-sm" id="btn-freeze"><span data-lang="freeze">冻结本期</span></button></div></div>
+    <header class="header">
+      <div><h1 id="workspace-title">找到下一项能力</h1><p id="workspace-description">在线发现技能，为你的工具选择合适模块。</p><p id="header-subtitle">本周发现</p><div id="period-bar" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"></div></div>
+      <div class="stats">
+        <div class="stat"><div class="stat-title" data-lang="new_found">新发现</div><div class="stat-value new" id="stat-new">-</div></div>
+        <div class="stat"><div class="stat-title" data-lang="updatable">可更新</div><div class="stat-value update" id="stat-update">-</div></div>
+        <div class="stat"><div class="stat-title" data-lang="sources">数据源</div><div class="stat-value sources" id="stat-sources">-</div></div>
+      </div>
+    </header>
+    <div class="service-strip" role="status" aria-live="polite"><span class="service-dot" id="service-dot"></span><span id="service-status" data-lang="service_connecting">正在连接本地服务…</span><span id="update-status"></span><button class="btn btn-ghost btn-sm" id="btn-check-updates" data-lang="check_updates">检查更新</button></div>
+    <div class="workspace-columns">
+      <div class="workspace-feed">
   <!-- 外部数据源管理面板 -->
   <div class="ext-sources-panel" id="ext-sources-panel">
     <h3 data-lang="ext_sources_title">外部数据源管理</h3>
@@ -396,16 +474,23 @@ body { font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Trebuchet MS", san
       <h3 data-lang="installed_skills">📦 已安装的 Skill</h3>
       <button class="btn btn-ghost btn-sm" id="btn-close-installed" style="font-size:18px">✕</button>
     </div>
+    <p id="version-view-hint" class="modal-hint" hidden data-lang="version_view_hint"></p>
     <div id="installed-list" style="max-height:400px;overflow-y:auto">
       <div style="color:var(--text-dim);font-size:13px;text-align:center;padding:20px" data-lang="loading">加载中...</div>
     </div>
   </div>
 
+        <section id="discovery-view" aria-label="技能发现 / Discover skills">
+<div class="toolbar search-toolbar">
+    <input type="search" aria-label="搜索技能 / Search skills" id="search-input" data-lang-placeholder="search_placeholder">
+    <button class="btn btn-primary" id="btn-ai-search" type="button" title="从 GitHub 和已保存的外部数据源检索，再用通用功能标签匹配">✨ AI 在线搜索</button>
+</div>
   <!-- 数据源筛选条 -->
   <div class="source-filter" id="source-filters" style="display:none;margin-bottom:12px"></div>
 
   <!-- 主筛选 -->
   <div class="toolbar">
+    <button class="btn btn-ghost btn-sm" id="btn-source-filters" data-lang="filter_sources"></button>
     <select id="filter-category" aria-label="分类 / Category"><option value="all" data-lang-opt="all_cat">全部分类</option></select>
     <select id="filter-status" aria-label="状态 / Status">
       <option value="all" data-lang-opt="all_status">全部状态</option>
@@ -416,8 +501,6 @@ body { font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Trebuchet MS", san
       <option value="score" data-lang-opt="sort_score">按综合评分</option>
       <option value="stars" data-lang-opt="sort_stars">按 Star 数</option>
     </select>
-    <input type="search" aria-label="搜索技能 / Search skills" id="search-input" data-lang-placeholder="search_placeholder">
-    <button class="btn btn-ghost" id="btn-ai-search" type="button" title="从 GitHub 和已保存的外部数据源检索，再用通用功能标签匹配">✨ AI 在线搜索</button>
   </div>
   <div id="search-status" class="search-status" role="status" aria-live="polite"></div>
 
@@ -433,20 +516,27 @@ body { font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Trebuchet MS", san
     <p style="font-size:18px;color:var(--text-dim)" data-lang="no_results">本周无新发现</p>
     <p style="font-size:14px;color:var(--text-dim);margin-top:4px" data-lang="no_updates">所有 skill 均无可用更新</p>
   </div>
-</div>
-
-<div class="queue-badge" id="queue-badge">
-  <button id="btn-queue"><span id="queue-count">0</span></button>
-</div>
-<div class="toast-container" id="toast-container"></div>
-
-<div class="modal-overlay" id="module-modal" role="dialog" aria-modal="true" aria-labelledby="module-title">
+        </section>
+      </div>
+      <aside class="module-inspector" id="module-inspector" aria-label="模块详情 / Module details">
+        <div id="inspector-placeholder"><div class="inspector-head" data-lang="inspector_title">模块详情</div><div class="inspector-empty"><div class="inspector-symbol" aria-hidden="true">▦</div><h3 data-lang="inspector_empty">按需要组合你的工具</h3><p data-lang="inspector_hint">点击技能的「安装」或「查看模块」，在这里查看功能、比较工具版本并选择安装内容。</p><div class="inspector-steps"><span><b>1</b><span data-lang="inspector_step1">查看模块与功能说明</span></span><span><b>2</b><span data-lang="inspector_step2">选择 Claude Code / Codex</span></span><span><b>3</b><span data-lang="inspector_step3">加入队列，验证后安装</span></span></div></div></div>
+<div class="module-dock" id="module-modal" role="dialog" aria-modal="false" tabindex="-1" aria-labelledby="module-title">
   <div class="modal module-modal">
     <div class="modal-head"><h3 id="module-title">选择版本与模块</h3><button class="btn btn-ghost btn-sm" id="btn-close-modules" aria-label="关闭">✕</button></div>
     <div class="modal-body"><div id="module-intro" class="modal-hint"></div><div id="module-list"></div></div>
     <div class="modal-foot"><button class="btn btn-ghost" id="btn-cancel-modules">取消</button><button class="btn btn-primary" id="btn-confirm-modules">加入安装队列</button></div>
   </div>
 </div>
+
+      </aside>
+    </div>
+  </main>
+</div>
+
+<div class="queue-badge" id="queue-badge">
+  <button id="btn-queue"><span data-lang="queue_label">安装队列</span> · <span id="queue-count">0</span></button>
+</div>
+<div class="toast-container" id="toast-container"></div>
 
 <div class="modal-overlay" id="version-modal" role="dialog" aria-modal="true" aria-labelledby="version-title">
   <div class="modal module-modal">
@@ -670,7 +760,67 @@ const LANG = {
   }
 };
 
+Object.assign(LANG.zh, {"nav_discover": "发现技能", "nav_installed": "已安装", "nav_versions": "更新与回退", "nav_sources": "数据源", "title_discover": "找到下一项能力", "title_installed": "你的技能库", "title_versions": "让工具保持合用", "title_sources": "拓展发现范围", "desc_discover": "在线发现技能，为你的工具选择合适模块。", "desc_installed": "管理已安装技能，查看工具版本与验证记录。", "desc_versions": "更新到最新、安装历史版本，或从本机备份回退。", "desc_sources": "管理外部数据源，按需拉取新的技能。", "theme_label": "工作台配色", "theme_note": "选择保存在本机浏览器", "inspector_title": "模块详情", "inspector_empty": "按需要组合你的工具", "inspector_hint": "点击技能的「安装」或「查看模块」，在这里查看功能、比较工具版本并选择安装内容。", "inspector_step1": "查看模块与功能说明", "inspector_step2": "选择 Claude Code / Codex", "inspector_step3": "加入队列，验证后安装", "queue_label": "安装队列", "version_view_hint": "点击「版本」选择历史版本或回退备份；点击「更新」获取最新版本。Claude Code 与 Codex 独立版本分别管理。"});
+Object.assign(LANG.en, {"nav_discover": "Discover", "nav_installed": "Installed", "nav_versions": "Versions", "nav_sources": "Sources", "title_discover": "Find your next capability", "title_installed": "Your skill library", "title_versions": "Keep your tools in shape", "title_sources": "Expand your sources", "desc_discover": "Discover skills online and choose modules for your tools.", "desc_installed": "Manage installed skills, tool versions and verification records.", "desc_versions": "Update, choose an earlier version or restore a local backup.", "desc_sources": "Manage external sources and fetch new skills on demand.", "theme_label": "Workspace theme", "theme_note": "Saved in this browser", "inspector_title": "Module details", "inspector_empty": "Build your own toolkit", "inspector_hint": "Choose Install or View modules to compare features and select tool versions here.", "inspector_step1": "Review modules and their features", "inspector_step2": "Choose Claude Code / Codex", "inspector_step3": "Queue, verify and install", "queue_label": "Install queue", "version_view_hint": "Choose Versions for earlier releases and local backups. Claude Code and independent Codex versions are managed separately."});
+
 let currentLang = 'zh';
+
+// 固定主题数据；切换只修改页面变量和浏览器本地偏好，不请求网络。
+const WORKSPACE_THEMES = [{"id":"mist-harbor","name":"雾港蓝","radius":14,"vars":{"bg":"#f5f3f3","paper":"#fefefe","ink":"#2a2e39","muted":"#60646f","accent":"#313f60","tint":"#e4e8f1","border":"#dbd9db","sidebar":"#f5f0ef","side-ink":"#333947","side-muted":"#636873","side-line":"#dad6d7","mark":"#98a9d0","mark-ink":"#2a2e39","heading":"#e4e8f2","selected":"#f8f9fb","button":"#313f60","button-ink":"#ffffff","nav":"#d7deed","nav-ink":"#39496f","nav-radius":"9px","mark-radius":"6px","elevation":"0 5px 18px #24324708","rail-margin":"0","rail-radius":"0","rail-shadow":"none"}},{"id":"rock-moss","name":"岩苔绿","radius":16,"vars":{"bg":"#f2f6f2","paper":"#fefefe","ink":"#2c3929","muted":"#5b6758","accent":"#3d6734","tint":"#e8f2e6","border":"#d8ddd8","sidebar":"#2b3d28","side-ink":"#f9faf8","side-muted":"#c4c9c3","side-line":"#51604f","mark":"#a3d19a","mark-ink":"#2c3929","heading":"#e3f0e0","selected":"#f9fbf8","button":"#3d6734","button-ink":"#ffffff","nav":"#a3d19a","nav-ink":"#2c3929","nav-radius":"16px","mark-radius":"16px","elevation":"0 0 0 transparent","rail-margin":"0","rail-radius":"0","rail-shadow":"none"}},{"id":"warm-clay","name":"暖陶橘","radius":6,"vars":{"bg":"#f8f6f5","paper":"#fefefe","ink":"#302623","muted":"#6f6360","accent":"#62433a","tint":"#efe7e4","border":"#dedbda","sidebar":"#efece8","side-ink":"#473833","side-muted":"#6f6360","side-line":"#d7d3cf","mark":"#d0b1a7","mark-ink":"#302623","heading":"#f1e9e6","selected":"#fbf9f9","button":"#62433a","button-ink":"#ffffff","nav":"#ede1dd","nav-ink":"#6a493e","nav-radius":"9px","mark-radius":"6px","elevation":"0 5px 18px #24324708","rail-margin":"0","rail-radius":"0","rail-shadow":"none"}},{"id":"haze-violet","name":"烟霞紫","radius":14,"vars":{"bg":"#f5f5f7","paper":"#fefefe","ink":"#302635","muted":"#69606f","accent":"#523562","tint":"#ebe3f0","border":"#dbdade","sidebar":"#efeff4","side-ink":"#403347","side-muted":"#6d6373","side-line":"#d6d5dc","mark":"#b895cb","mark-ink":"#302635","heading":"#ece4f1","selected":"#faf8fb","button":"#523562","button-ink":"#ffffff","nav":"#e3d6eb","nav-ink":"#5b3b6d","nav-radius":"6px","mark-radius":"6px","elevation":"0 0 0 transparent","rail-margin":"10px 0 10px 6px","rail-radius":"14px","rail-shadow":"0 4px 12px #24324706"}},{"id":"tidal-teal","name":"潮汐青","radius":14,"vars":{"bg":"#f3f6f5","paper":"#fefefe","ink":"#2d3b3e","muted":"#5c696b","accent":"#38585d","tint":"#e9f1f2","border":"#d9dedd","sidebar":"#e4ece9","side-ink":"#334447","side-muted":"#586567","side-line":"#cbd4d2","mark":"#a6c9cf","mark-ink":"#2d3b3e","heading":"#e8f1f2","selected":"#f9fbfb","button":"#38585d","button-ink":"#ffffff","nav":"#ddeaec","nav-ink":"#3f6369","nav-radius":"6px","mark-radius":"16px","elevation":"0 5px 18px #24324708","rail-margin":"0","rail-radius":"0","rail-shadow":"none"}},{"id":"wheat-gold","name":"麦穗金","radius":14,"vars":{"bg":"#f7f7f5","paper":"#fefefe","ink":"#3b3a2b","muted":"#6b695c","accent":"#736b29","tint":"#f4f2e8","border":"#dfdedb","sidebar":"#f1f3eb","side-ink":"#474533","side-muted":"#6b695c","side-line":"#d9dbd1","mark":"#dcd48f","mark-ink":"#3b3a2b","heading":"#f7f5e6","selected":"#fcfbf7","button":"#736b29","button-ink":"#ffffff","nav":"#f1eed4","nav-ink":"#6b6426","nav-radius":"9px","mark-radius":"10px","elevation":"0 0 0 transparent","rail-margin":"0","rail-radius":"0","rail-shadow":"none"}},{"id":"night-indigo","name":"夜航靛","radius":16,"vars":{"bg":"#f5f4f6","paper":"#fefefe","ink":"#2c2939","muted":"#62606f","accent":"#3d3467","tint":"#e5e3f1","border":"#dbdadd","sidebar":"#232031","side-ink":"#f9faf8","side-muted":"#c1c1c5","side-line":"#4b4856","mark":"#a197d0","mark-ink":"#2c2939","heading":"#e6e3f2","selected":"#f8f8fb","button":"#3d3467","button-ink":"#ffffff","nav":"#a197d0","nav-ink":"#2c2939","nav-radius":"16px","mark-radius":"16px","elevation":"0 5px 18px #24324708","rail-margin":"0","rail-radius":"0","rail-shadow":"none"}},{"id":"raspberry","name":"山莓红","radius":6,"vars":{"bg":"#f9f8f8","paper":"#fefefe","ink":"#3f2e36","muted":"#67585f","accent":"#642f48","tint":"#f4e8ed","border":"#e1dedf","sidebar":"#f2ebec","side-ink":"#47333d","side-muted":"#6f6067","side-line":"#dad1d4","mark":"#d498b4","mark-ink":"#3f2e36","heading":"#f0dbe5","selected":"#fbf8fa","button":"#642f48","button-ink":"#ffffff","nav":"#eed7e2","nav-ink":"#723652","nav-radius":"9px","mark-radius":"16px","elevation":"0 0 0 transparent","rail-margin":"10px 0 10px 6px","rail-radius":"14px","rail-shadow":"0 4px 12px #24324706"}},{"id":"apricot-sand","name":"杏砂棕","radius":16,"vars":{"bg":"#f6f8f8","paper":"#fefefe","ink":"#302923","muted":"#676058","accent":"#6e5234","tint":"#f1eae2","border":"#dcdddc","sidebar":"#eaf1f1","side-ink":"#473e33","side-muted":"#6b645c","side-line":"#d3d8d6","mark":"#cfaf8c","mark-ink":"#302923","heading":"#f1e7dd","selected":"#fbf9f7","button":"#6e5234","button-ink":"#ffffff","nav":"#ece0d3","nav-ink":"#735536","nav-radius":"9px","mark-radius":"6px","elevation":"0 0 0 transparent","rail-margin":"0","rail-radius":"0","rail-shadow":"none"}},{"id":"graphite","name":"石墨银","radius":6,"vars":{"bg":"#f3f3f5","paper":"#fefefe","ink":"#272b36","muted":"#636773","accent":"#545863","tint":"#e7e8eb","border":"#d8d9dc","sidebar":"#edecee","side-ink":"#333947","side-muted":"#60646f","side-line":"#d3d3d7","mark":"#b6b9c1","mark-ink":"#272b36","heading":"#f0f1f3","selected":"#fafafa","button":"#545863","button-ink":"#ffffff","nav":"#e3e4e7","nav-ink":"#4d515b","nav-radius":"16px","mark-radius":"10px","elevation":"0 0 0 transparent","rail-margin":"10px 0 10px 6px","rail-radius":"14px","rail-shadow":"0 4px 12px #24324706"}}];
+const THEME_KEY = 'skill-forge-theme';
+let workspaceView = 'discover';
+let previewOpener = null;
+function applyWorkspaceTheme(id, persist) {
+  var theme = WORKSPACE_THEMES.find(function(item) { return item.id === id; }) || WORKSPACE_THEMES[0];
+  Object.keys(theme.vars).forEach(function(key) { document.documentElement.style.setProperty('--' + key, theme.vars[key]); });
+  document.documentElement.style.setProperty('--radius', theme.radius + 'px');
+  document.documentElement.style.setProperty('--rail-gap', theme.vars['rail-margin'] === '0' ? '0px' : '20px');
+  document.documentElement.dataset.theme = theme.id;
+  document.getElementById('theme-select').value = theme.id;
+  var swatches = document.getElementById('theme-swatches'); swatches.replaceChildren();
+  ['bg', 'sidebar', 'mark', 'accent', 'ink'].forEach(function(key) {
+    var swatch = document.createElement('span'); swatch.style.background = theme.vars[key]; swatches.appendChild(swatch);
+  });
+  if (persist) {
+    try { localStorage.setItem(THEME_KEY, theme.id); }
+    catch (e) { document.getElementById('theme-note').textContent = currentLang === 'zh' ? '当前浏览器无法保存，配色本次有效' : 'Storage unavailable; applied for this session'; }
+  }
+}
+function initWorkspaceThemes() {
+  var select = document.getElementById('theme-select');
+  WORKSPACE_THEMES.forEach(function(theme) { var option = document.createElement('option'); option.value = theme.id; option.textContent = theme.name; select.appendChild(option); });
+  var saved = null; try { saved = localStorage.getItem(THEME_KEY); } catch (e) {}
+  applyWorkspaceTheme(saved, false);
+  select.addEventListener('change', function() { applyWorkspaceTheme(select.value, true); });
+}
+function updateWorkspaceTitle() {
+  document.getElementById('workspace-title').textContent = t('title_' + workspaceView);
+  document.getElementById('workspace-description').textContent = t('desc_' + workspaceView);
+  document.getElementById('view-breadcrumb').textContent = t('nav_' + workspaceView);
+}
+function setWorkspaceView(view) {
+  if (!['discover', 'installed', 'versions', 'sources'].includes(view)) return;
+  workspaceView = view;
+  document.querySelectorAll('[data-view]').forEach(function(button) {
+    var active = button.dataset.view === view; button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
+  });
+  document.getElementById('discovery-view').hidden = view !== 'discover';
+  document.getElementById('installed-panel').classList.toggle('open', view === 'installed' || view === 'versions');
+  document.getElementById('ext-sources-panel').classList.toggle('open', view === 'sources');
+  document.getElementById('version-view-hint').hidden = view !== 'versions';
+  updateWorkspaceTitle();
+  if (view === 'installed' || view === 'versions') loadInstalled();
+  if (view === 'sources') loadExtSources();
+}
+function closeModulePreview() {
+  previewRequest++;
+  document.getElementById('module-modal').classList.remove('open');
+  document.getElementById('module-inspector').classList.remove('has-preview');
+  previewSelection = null;
+  if (previewOpener && previewOpener.isConnected) previewOpener.focus();
+}
+
 
 function t(key) {
   var cat = LANG[currentLang].category_labels;
@@ -683,6 +833,7 @@ function setLang(lang) {
   document.getElementById('btn-zh').classList.toggle('active', lang === 'zh');
   document.getElementById('btn-en').classList.toggle('active', lang === 'en');
   applyLang();
+  updateWorkspaceTitle();
   // 板块那块的标题/计数是带语言的，切语言要跟着重建
   renderSections();
   // 期状态条是 JS 拼出来的，扫不到 data-lang，得手动重建
@@ -1042,9 +1193,7 @@ function toggleSourceFilters() {
 // 外部数据源管理
 // ============================================================
 function toggleInstalled() {
-  var panel = document.getElementById('installed-panel');
-  panel.classList.toggle('open');
-  if (panel.classList.contains('open')) loadInstalled();
+  setWorkspaceView(workspaceView === 'installed' ? 'discover' : 'installed');
 }
 
 // ============================================================
@@ -1231,9 +1380,7 @@ function initInstalled() {
 }
 
 function toggleExtSources() {
-  var panel = document.getElementById('ext-sources-panel');
-  panel.classList.toggle('open');
-  if (panel.classList.contains('open')) loadExtSources();
+  setWorkspaceView(workspaceView === 'sources' ? 'discover' : 'sources');
 }
 
 function loadExtSources() {
@@ -1727,10 +1874,14 @@ function beginInstallPreview(name, url, forQueued) {
   if ((!forQueued && installQueue.some(function(q) { return q.name === name; })) || previewBusy.has(name)) return;
   previewBusy.add(name);
   var request = ++previewRequest;
+  previewSelection = null;
+  previewOpener = document.activeElement;
+  document.getElementById('module-inspector').classList.add('has-preview');
   document.getElementById('module-intro').textContent = '正在读取 ' + name + ' 的模块和工具版本，仓库较大时可能需要一些时间…';
   document.getElementById('module-list').innerHTML = '';
   document.getElementById('btn-confirm-modules').disabled = true;
   document.getElementById('module-modal').classList.add('open');
+  document.getElementById('btn-close-modules').focus();
   bridgeFetch('preview-install', {method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({name:name, url:url})})
     .then(function(r) { return r.json(); })
@@ -1802,8 +1953,7 @@ function confirmModulePreview() {
     .map(function(x) { return {path:x.module.path, target:x.tool}; });
   if (!selected.length) { alert('请选择至少一个模块和目标工具。'); return; }
   var preview = previewSelection;
-  document.getElementById('module-modal').classList.remove('open');
-  previewSelection = null;
+  closeModulePreview();
   if (preview.forQueued) {
     var queued = installQueue.find(function(q) { return q.name === preview.name; });
     if (queued) {
@@ -2213,10 +2363,10 @@ function bindStaticHandlers() {
   on('btn-settings', 'click', openSettings);
   on('btn-close-settings', 'click', closeSettings);
   on('btn-settings-close2', 'click', closeSettings);
-  on('btn-close-modules', 'click', function() { previewRequest++; document.getElementById('module-modal').classList.remove('open'); previewSelection = null; });
+  on('btn-close-modules', 'click', closeModulePreview);
   on('btn-close-version', 'click', closeVersionHistory);
   on('btn-dismiss-version', 'click', closeVersionHistory);
-  on('btn-cancel-modules', 'click', function() { previewRequest++; document.getElementById('module-modal').classList.remove('open'); previewSelection = null; });
+  on('btn-cancel-modules', 'click', closeModulePreview);
   on('btn-confirm-modules', 'click', confirmModulePreview);
   on('btn-close-install-result', 'click', function() { document.getElementById('install-result-modal').classList.remove('open'); });
   on('btn-dismiss-install-result', 'click', function() { document.getElementById('install-result-modal').classList.remove('open'); });
@@ -2228,10 +2378,13 @@ function bindStaticHandlers() {
       if (e.target === overlay) closeSettings();
     });
   }
-  on('btn-installed', 'click', toggleInstalled);
+  on('btn-discover', 'click', function() { setWorkspaceView('discover'); });
+  on('btn-versions', 'click', function() { setWorkspaceView('versions'); });
+  on('btn-installed', 'click', function() { setWorkspaceView('installed'); });
+  document.getElementById('module-modal').addEventListener('keydown', function(e) { if (e.key === 'Escape') { e.preventDefault(); closeModulePreview(); } });
   on('btn-check-updates', 'click', function() { checkUpdates(false); });
-  on('btn-close-installed', 'click', toggleInstalled);
-  on('btn-ext-sources', 'click', toggleExtSources);
+  on('btn-close-installed', 'click', function() { setWorkspaceView('discover'); });
+  on('btn-ext-sources', 'click', function() { setWorkspaceView('sources'); });
   on('btn-source-filters', 'click', toggleSourceFilters);
   on('btn-add-source', 'click', addExternalSource);
   on('btn-save-sources', 'click', function() { saveExtSources(false); });
@@ -2528,7 +2681,9 @@ function deleteCredential(name) {
 // ============================================================
 // 初始化 — 立即渲染
 // ============================================================
+initWorkspaceThemes();
 bindStaticHandlers();
+updateWorkspaceTitle();
 // 注：翻译后端的设置**不在这里预加载** —— 它存在 daemon 侧的配置文件里，
 // 等用户打开设置面板时再向 bridge 要（见 openSettings）。
 loadFrozen();     // R3：先读回冻结点，再决定渲染哪一期
@@ -2557,7 +2712,9 @@ bridgeFetch('', { signal: ctrl.signal })
   })
   .catch(function() {
     setServiceState(false);
-    installQueue = JSON.parse(localStorage.getItem('skill-forge-queue') || '[]');
+    try { installQueue = JSON.parse(localStorage.getItem('skill-forge-queue') || '[]'); }
+    catch (e) { installQueue = []; }
+    updateQueueBadge(); renderSkills();
   });
 
 // 注：这里**不再**写 header-subtitle。
