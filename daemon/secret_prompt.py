@@ -37,30 +37,19 @@ _dialog_lock = threading.Lock()
 PROMPTS = {
     credentials.GITHUB_TOKEN: (
         "GitHub 个人访问令牌 (PAT)",
-        # ⚠️ 2026-10-07：原话说"用来把 API 限流从 60/小时提到 5000/小时" —— 那只是
-        # **读**的用途。实测撞到过：一个只为提限流建的 fine-grained token 是**只读**的，
-        # 拿它 `git push` 会 403（`Permission to <owner>/<repo> denied`）。
-        # 要推代码就得有 **Contents: Read and write**。
         "粘贴你的 GitHub Token。\n"
-        "它将存进 Windows 凭据管理器，供 skill-forge **读取** GitHub API 使用：\n"
-        "  · 把限流从 60 次/小时提到 5000 次/小时\n"
-        "  · 不配也能跑，但容易被限流，L2 来源校验会被跳过\n"
-        "skill-forge 自己**不会**用它 push、也不会用它 clone 私有仓库。\n"
-        "（你自己 git push 到自己的仓库时可以复用同一个 token ——\n"
-        " 那需要在它上面勾 Contents: Read and write）",
+        "令牌保存在 Windows 凭据管理器，用于读取 GitHub 数据、减少匿名访问限流。\n"
+        "不配置也可使用公开来源；遇到限流时，L2 来源检查可能跳过。",
         "创建入口：GitHub → Settings → Developer settings → Personal access tokens。\n"
-        "只给读用途的话，不要勾写权限。\n"
-        "留空或取消则维持现状（不配置）。",
+        "Skill Forge 的读取用途无需仓库写权限，不会用它推送代码。\n"
+        "留空或取消会保留已有配置。",
     ),
     credentials.AI_TOKEN: (
-        "AI 供应商密钥",
-        # ⚠️ 这里原先写的是"它用于 AI 翻译后端" —— **说轻了**。这个密钥真正的用途是
-        # **L4 深度分析与 L5 沙箱**（装每个 skill 时都要调模型）。只提翻译会让人
-        # 以为它是可选的附属功能，而没配它 L4/L5 会直接跳过 —— 那是安全流水线的一半。
+        "DeepSeek API 密钥",
         "粘贴 DeepSeek API Key。\n"
         "它由模块简介翻译与 AI 模糊搜索共用，仅向 DeepSeek 官方接口发送用于认证。",
         "密钥保存在 Windows 凭据管理器，不经过浏览器页面。\n"
-        "留空或取消则维持现状（不配置）。",
+        "留空或取消会保留已有配置。",
     ),
 }
 

@@ -1,4 +1,4 @@
-# Skill Forge Gate — 原生密钥输入框
+﻿# Skill Forge Gate — 原生密钥输入框
 #
 # 由 bridge 按需唤起（见 daemon/secret_prompt.py）。设计要点：
 #
@@ -25,10 +25,15 @@ $ErrorActionPreference = "Stop"
 try {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
+    [System.Windows.Forms.Application]::EnableVisualStyles()
 
     $form = New-Object System.Windows.Forms.Form
     $form.Text            = $Title
-    $form.Size            = New-Object System.Drawing.Size(460, 240)
+    $form.Font            = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
+    $form.AutoScaleMode   = [System.Windows.Forms.AutoScaleMode]::Dpi
+    $form.AutoScaleDimensions = New-Object System.Drawing.SizeF(96, 96)
+    $form.AutoSize        = $true
+    $form.AutoSizeMode    = [System.Windows.Forms.AutoSizeMode]::GrowAndShrink
     $form.StartPosition   = "CenterScreen"
     $form.FormBorderStyle = "FixedDialog"
     $form.MaximizeBox     = $false
@@ -37,46 +42,77 @@ try {
     $form.BackColor       = [System.Drawing.Color]::FromArgb(32, 32, 48)
     $form.ForeColor       = [System.Drawing.Color]::FromArgb(224, 224, 224)
 
+    # Let every row grow with its text; fixed label heights clip Chinese at higher DPI.
+    $layout = New-Object System.Windows.Forms.TableLayoutPanel
+    $layout.AutoSize = $true
+    $layout.AutoSizeMode = [System.Windows.Forms.AutoSizeMode]::GrowAndShrink
+    $layout.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $layout.Padding = New-Object System.Windows.Forms.Padding(20)
+    $layout.ColumnCount = 1
+    $layout.RowCount = 4
+    [void]$layout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)))
+    for ($row = 0; $row -lt 4; $row++) {
+        [void]$layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::AutoSize)))
+    }
+    $form.Controls.Add($layout)
+
     $label = New-Object System.Windows.Forms.Label
-    $label.Text     = $Prompt
-    $label.Location = New-Object System.Drawing.Point(20, 20)
-    $label.Size     = New-Object System.Drawing.Size(410, 40)
-    $label.Font     = New-Object System.Drawing.Font("Microsoft YaHei UI", 10)
-    $form.Controls.Add($label)
+    # Older bridge processes may still send Markdown emphasis; native labels are plain text.
+    $label.Text     = $Prompt.Replace("**", "")
+    $label.AutoSize = $true
+    $label.MinimumSize = New-Object System.Drawing.Size(520, 0)
+    $label.MaximumSize = New-Object System.Drawing.Size(520, 0)
+    $label.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 14)
+    $layout.Controls.Add($label, 0, 0)
 
     $box = New-Object System.Windows.Forms.TextBox
-    $box.Location     = New-Object System.Drawing.Point(20, 66)
-    $box.Size         = New-Object System.Drawing.Size(410, 28)
+    $box.Width        = 520
+    $box.Dock         = [System.Windows.Forms.DockStyle]::Fill
+    $box.Margin       = New-Object System.Windows.Forms.Padding(0)
     $box.UseSystemPasswordChar = $true
     $box.Font         = New-Object System.Drawing.Font("Consolas", 10)
     $box.BackColor    = [System.Drawing.Color]::FromArgb(20, 20, 32)
     $box.ForeColor    = [System.Drawing.Color]::FromArgb(224, 224, 224)
     $box.BorderStyle  = "FixedSingle"
-    $form.Controls.Add($box)
+    $layout.Controls.Add($box, 0, 1)
 
     if ($Hint) {
         $hintLabel = New-Object System.Windows.Forms.Label
-        $hintLabel.Text     = $Hint
-        $hintLabel.Location = New-Object System.Drawing.Point(20, 100)
-        $hintLabel.Size     = New-Object System.Drawing.Size(410, 40)
+        $hintLabel.Text     = $Hint.Replace("**", "")
+        $hintLabel.AutoSize = $true
+        $hintLabel.MinimumSize = New-Object System.Drawing.Size(520, 0)
+        $hintLabel.MaximumSize = New-Object System.Drawing.Size(520, 0)
+        $hintLabel.Margin = New-Object System.Windows.Forms.Padding(0, 12, 0, 0)
         $hintLabel.ForeColor = [System.Drawing.Color]::FromArgb(150, 150, 150)
-        $hintLabel.Font     = New-Object System.Drawing.Font("Microsoft YaHei UI", 8)
-        $form.Controls.Add($hintLabel)
+        $layout.Controls.Add($hintLabel, 0, 2)
     }
+
+    $buttons = New-Object System.Windows.Forms.FlowLayoutPanel
+    $buttons.AutoSize = $true
+    $buttons.AutoSizeMode = [System.Windows.Forms.AutoSizeMode]::GrowAndShrink
+    $buttons.MinimumSize = New-Object System.Drawing.Size(520, 0)
+    $buttons.FlowDirection = [System.Windows.Forms.FlowDirection]::RightToLeft
+    $buttons.WrapContents = $false
+    $buttons.Margin = New-Object System.Windows.Forms.Padding(0, 18, 0, 0)
+    $layout.Controls.Add($buttons, 0, 3)
 
     $ok = New-Object System.Windows.Forms.Button
     $ok.Text     = "确定"
-    $ok.Location = New-Object System.Drawing.Point(230, 150)
-    $ok.Size     = New-Object System.Drawing.Size(96, 32)
+    $ok.AutoSize = $true
+    $ok.MinimumSize = New-Object System.Drawing.Size(100, 34)
+    $ok.Margin = New-Object System.Windows.Forms.Padding(0, 0, 8, 0)
+    $ok.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
     $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $form.Controls.Add($ok)
 
     $cancel = New-Object System.Windows.Forms.Button
     $cancel.Text     = "取消"
-    $cancel.Location = New-Object System.Drawing.Point(334, 150)
-    $cancel.Size     = New-Object System.Drawing.Size(96, 32)
+    $cancel.AutoSize = $true
+    $cancel.MinimumSize = New-Object System.Drawing.Size(100, 34)
+    $cancel.Margin = New-Object System.Windows.Forms.Padding(0)
+    $cancel.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
     $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
-    $form.Controls.Add($cancel)
+    $buttons.Controls.Add($cancel)
+    $buttons.Controls.Add($ok)
 
     $form.AcceptButton = $ok        # 回车 = 确定
     $form.CancelButton = $cancel    # Esc  = 取消
