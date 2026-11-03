@@ -323,7 +323,9 @@ def generate_panel_html(categorized: dict, output_path: Path, sections: dict = N
     #
     # 用副本而不是直接往 categorized 上挂：上层还会拿这个 dict 做别的事，
     # 不该让"给面板看的字段"漏进通用数据里。
+    from daemon import edition
     payload = dict(categorized)
+    payload["_edition"] = edition.info()
     payload["_installed"] = installed_snapshot(SKILL_ROOT)
 
     # 功能板块高星榜（学术 / 文本 / 代码）。

@@ -173,10 +173,13 @@ INSTALLED_SHA=$(cd "$TARGET_DIR" && git rev-parse HEAD 2>/dev/null || echo "unkn
 # `/c/Users/xxx` 这种 POSIX 形式，写进源码后 Windows Python 打不开它。
 # （这个坑 self-update.sh 也踩过。）
 "$PYTHON" - "$SOURCES_FILE" "$SKILL_NAME" "$URL" "$OWNER" "$REPO" \
-          "$BRANCH" "$SUBPATH" "$INSTALLED_SHA" <<'PYEOF'
+          "$BRANCH" "$SUBPATH" "$INSTALLED_SHA" "$PRECHECK_JSON" "$SKILL_FORGE" <<'PYEOF'
 import datetime, json, sys
 
 (sf_path, name, url, owner, repo, branch, subpath, sha) = sys.argv[1:9]
+sys.path.insert(0, sys.argv[10])
+from daemon.installer import _trust_level, _trust_note
+verdict = json.loads(sys.argv[9])
 with open(sf_path, encoding="utf-8") as f:
     data = json.load(f)
 data[name] = {
@@ -187,6 +190,8 @@ data[name] = {
     "branch": branch,
     "subpath": subpath,
     "installed_sha": sha,
+    "trust_level": _trust_level(verdict),
+    "trust_note": _trust_note(verdict),
     "installed_at": datetime.datetime.now(
         datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
 }
@@ -201,4 +206,8 @@ if [[ -f "$SKILL_FORGE/daemon/codex_sync.py" && -f "$SKILL_FORGE/templates/codex
         || echo 'Codex 同步未完成，可运行 python -m daemon.codex_sync 重试。' >&2
 fi
 
-echo "{\"ok\": true, \"name\": \"$SKILL_NAME\", \"path\": \"$TARGET_DIR\", \"sha\": \"$INSTALLED_SHA\"}"
+"$PYTHON" - "$SKILL_NAME" "$TARGET_DIR" "$INSTALLED_SHA" "$PRECHECK_JSON" <<'PYEOF'
+import json, sys
+print(json.dumps(dict(ok=True, name=sys.argv[1], path=sys.argv[2], sha=sys.argv[3],
+                      verify=json.loads(sys.argv[4])), ensure_ascii=False))
+PYEOF

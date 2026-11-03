@@ -97,7 +97,7 @@ def setup(tmp: Path, tag: str):
     bin_dir = tmp / f"bin-{tag}"
     bin_dir.mkdir()
     g = bin_dir / "git"
-    g.write_text(FAKE_GIT, encoding="utf-8")
+    g.write_text(FAKE_GIT, encoding="utf-8", newline="\n")
     g.chmod(g.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return skills, bin_dir
 

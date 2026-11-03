@@ -446,7 +446,8 @@ def _install_skill(name: str, url: str, full_name: str = "") -> dict:
                          f"根目录不是合法 skill，且没有任何子 skill 通过预检：{verdict['summary']}",
             }
 
-        log(f"预检通过：{verdict['summary']}")
+        log(verdict['summary'] if verdict.get('security_checked') is False
+            else f"预检通过：{verdict['summary']}")
 
         sha = _get_latest_sha(repo_dest)
         dest = _install_skill_files(name, skill_files, repo_dest)
@@ -556,7 +557,7 @@ def _checkout_revision(repo: Path, revision: str):
 
 def _update_collection(name: str, repo: Path, url: str, branch: str, sha: str) -> dict:
     """Install a skills/ collection with its shared runtime, excluding fixtures."""
-    from verify.l1_structure import find_skill_file
+    from daemon.skill_entry import find_skill_file
     from daemon.fetcher import _extract_github_fullname
     with tempfile.TemporaryDirectory(prefix=".sf-update-", dir=SKILL_ROOT) as tmp:
         stage_dir = Path(tmp)
@@ -603,7 +604,7 @@ def _update_collection(name: str, repo: Path, url: str, branch: str, sha: str) -
 
 def _relocated_primary(installed: Path, repo: Path):
     """Find a previously installed single skill that moved under skills/."""
-    from verify.l1_structure import FRONTMATTER_RE, find_skill_file
+    from daemon.skill_entry import FRONTMATTER_RE, find_skill_file
     entry = find_skill_file(installed)
     if not entry:
         return None
@@ -626,7 +627,7 @@ def _relocated_primary(installed: Path, repo: Path):
 
 def _same_skill_root(installed: Path, repo: Path) -> bool:
     """Allow an older root version only when its declared identity matches."""
-    from verify.l1_structure import FRONTMATTER_RE, find_skill_file
+    from daemon.skill_entry import FRONTMATTER_RE, find_skill_file
     names = []
     for directory in (installed, repo):
         entry = find_skill_file(directory)
@@ -784,6 +785,8 @@ def _trust_note(verdict) -> str:
     """
     if not isinstance(verdict, dict):
         return "没有预检结论"
+    if verdict.get("edition") == "coreless" and verdict.get("security_checked") is False:
+        return "无核版：未执行安全验证"
     layers = verdict.get("layers") or []
     if not layers:
         return "没有预检结论"

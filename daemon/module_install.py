@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from daemon import installer, precheck, safe_paths, privacy, translate_ai, translate_config
-from verify.l1_structure import FRONTMATTER_RE, find_skill_file
+from daemon.skill_entry import FRONTMATTER_RE, find_skill_file
 
 CODEX_ROOT = Path.home() / '.agents' / 'skills'
 EXCLUDED = {'.git', '.github', 'node_modules', '__pycache__', '.venv', 'tests', 'test', 'examples'}

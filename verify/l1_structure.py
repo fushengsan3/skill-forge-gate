@@ -9,31 +9,10 @@ import re
 from pathlib import Path
 
 REQUIRED_FIELDS = ["name", "description"]
-FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# L1 认哪些文件名 —— **必须与 daemon/installer.py 的 _find_skill_files 一致**。
-#
-# 这两份清单曾经不一致：installer 认 4 个（含 CLAUDE.md），L1 只认 SKILL.md。
-# 后果是一整类仓库永远装不上，而且两边说的话正好互相打脸 ——
-# installer 说"找到了 skill 文件"，紧接着 L1 说"缺少 SKILL.md 文件"。
-# 2026-10-16 实测：mksglu/context-mode 的根目录只有 CLAUDE.md，
-# 用户连试 4 次，每次都被 L1 拒，且**理由是空的**（见下面那条 return）。
-#
-# 改这份清单时请同时改 installer 那份，反之亦然 —— 它们是同一个判定的两半。
-SKILL_FILENAMES = ("SKILL.md", "skill.md", "CLAUDE.md", "claude.md")
-
-
-def find_skill_file(root: Path):
-    """按固定顺序找 skill 的入口文件；一个都没有返回 None。
-
-    顺序**固定**（而不是取目录里先遍历到的那个）是为了结果可复现：
-    一个目录同时有 SKILL.md 和 CLAUDE.md 时，永远选 SKILL.md。
-    """
-    for name in SKILL_FILENAMES:
-        p = root / name
-        if p.is_file():
-            return p
-    return None
+from daemon.skill_entry import FRONTMATTER_RE, SKILL_FILENAMES, find_skill_file
 
 
 def check_skill(skill_path: str) -> dict:

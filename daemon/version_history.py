@@ -123,7 +123,7 @@ def rollback(name, tool, backup_name):
                 records = {}
                 restored_children = []
                 if collection:
-                    from verify.l1_structure import find_skill_file
+                    from daemon.skill_entry import find_skill_file
                     members = {p.name:p for p in (stage / 'skills').iterdir() if p.is_dir() and find_skill_file(p)}
                     if not members: raise ValueError('集合备份中没有可恢复的子技能')
                     stamp = backup.name[len(name) + 1:]

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-edition="full">
 <head>
 <meta charset="UTF-8">
 <!--
@@ -416,12 +416,16 @@ button, a, select, input { -webkit-tap-highlight-color: transparent; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } .card:hover { transform: none; } }
 
+
+.edition-badge {display:inline-block;margin-top:7px;padding:2px 7px;border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text-dim)}
+.edition-notice {margin:0 0 18px;padding:12px 16px;border:1px solid var(--border);border-left:3px solid var(--secondary);border-radius:8px;background:var(--surface);color:var(--text-dim);font-size:13px;line-height:1.6}
+.edition-notice[hidden] {display:none}
 </style>
 </head>
 <body>
 <div class="workspace">
   <aside class="workspace-sidebar" aria-label="工作台导航 / Workspace navigation">
-    <div class="workspace-brand"><span class="brand-mark" aria-hidden="true">SF</span><div><div class="brand-name">Skill Forge</div><div class="brand-caption">GATE / WORKSPACE</div></div></div>
+    <div class="workspace-brand"><span class="brand-mark" aria-hidden="true">SF</span><div><div class="brand-name">Skill Forge</div><div class="brand-caption">GATE / WORKSPACE</div><span class="edition-badge" id="edition-badge">完整版</span></div></div>
     <div><div class="nav-caption">WORKSPACE</div>
       <nav class="workspace-nav">
         <button class="nav-item active" id="btn-discover" data-view="discover" aria-current="page"><span class="nav-icon" aria-hidden="true">⌕</span><span data-lang="nav_discover">发现技能</span></button>
@@ -448,6 +452,7 @@ button, a, select, input { -webkit-tap-highlight-color: transparent; }
         <div class="stat"><div class="stat-title" data-lang="sources">数据源</div><div class="stat-value sources" id="stat-sources">-</div></div>
       </div>
     </header>
+    <div id="edition-notice" class="edition-notice" role="note" hidden></div>
     <div class="service-strip" role="status" aria-live="polite"><span class="service-dot" id="service-dot"></span><span id="service-status" data-lang="service_connecting">正在连接本地服务…</span><span id="update-status"></span><button class="btn btn-ghost btn-sm" id="btn-check-updates" data-lang="check_updates">检查更新</button></div>
     <div class="workspace-columns">
       <div class="workspace-feed">
@@ -598,6 +603,7 @@ button, a, select, input { -webkit-tap-highlight-color: transparent; }
 // 数据注入
 // ============================================================
 const DISCOVER_DATA = /* __DATA_PLACEHOLDER__ */;
+let activeEdition = DISCOVER_DATA._edition || {id: document.documentElement.dataset.edition || "full"};
 
 // ---- R2/R3：历史各期 ----
 // daemon 把历史拆成两层发过来（见 daemon/periods.py）：
@@ -822,7 +828,27 @@ function closeModulePreview() {
 }
 
 
+const CORELESS_LANG = {
+  zh: {pending_check:'待安装', inspector_step3:'加入队列并安装', desc_installed:'管理已安装技能及工具版本。', trust_unverified:'未做安全验证', trust_hint:'这是安装时保存的记录。无核版不执行安全验证，历史记录仅供参考。'},
+  en: {pending_check:'Queued', inspector_step3:'Queue and install', desc_installed:'Manage installed skills and tool versions.', trust_unverified:'Not security-checked', trust_hint:'Status recorded at installation. Coreless performs no security verification; earlier records are historical.'}
+};
+function applyEditionUI() {
+  var coreless = activeEdition.id === 'coreless';
+  document.documentElement.dataset.edition = coreless ? 'coreless' : 'full';
+  document.getElementById('edition-badge').textContent = currentLang === 'zh' ? (coreless ? '无核版' : '完整版') : (coreless ? 'Coreless' : 'Full');
+  var notice = document.getElementById('edition-notice');
+  notice.hidden = !coreless;
+  notice.textContent = currentLang === 'zh' ? '无核版仅提供技能安装与管理，不执行 L1–L5 安全验证。安装成功不代表技能安全。' : 'Coreless manages skill installation without L1–L5 security verification. Successful installation does not establish safety.';
+  document.title = 'Skill Forge Gate — ' + (currentLang === 'zh' ? (coreless ? '无核版' : '完整版') : (coreless ? 'Coreless' : 'Full'));
+}
+function receiveEdition(value) {
+  if (!value || !['full', 'coreless'].includes(value.id) || value.id === activeEdition.id) return;
+  activeEdition = {id: value.id};
+  applyLang();
+  updateWorkspaceTitle();
+}
 function t(key) {
+  if (activeEdition.id === 'coreless' && CORELESS_LANG[currentLang][key]) return CORELESS_LANG[currentLang][key];
   var cat = LANG[currentLang].category_labels;
   if (cat && cat[key]) return cat[key];
   return LANG[currentLang][key] || key;
@@ -861,6 +887,7 @@ function applyLang() {
       el.textContent = t(key);
     }
   });
+  applyEditionUI();
   // Update optgroup labels
   document.querySelectorAll('[data-lang-opt]').forEach(el => {
     var key = el.getAttribute('data-lang-opt');
@@ -1320,6 +1347,7 @@ function loadInstalled() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (!data.ok || !data.skills) throw new Error('malformed /installed response');
+      receiveEdition(data.edition);
       applyInstalled(data.skills, false);   // 拿到了实时的，就去掉"快照"提示
     })
     .catch(function() {
@@ -1374,7 +1402,7 @@ function initInstalled() {
   bridgeFetch('installed')
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data.ok && data.skills) applyInstalled(data.skills, false);
+      if (data.ok && data.skills) { receiveEdition(data.edition); applyInstalled(data.skills, false); }
     })
     .catch(function() {});   // 失败无所谓：嵌入名单已经在屏幕上了
 }

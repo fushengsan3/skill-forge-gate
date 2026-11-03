@@ -261,7 +261,8 @@ class QueueHandler(BaseHTTPRequestHandler):
         显式传入本模块的 SKILL_ROOT，测试替换这个全局变量依然生效。
         """
         skills = installed_snapshot(SKILL_ROOT)
-        self._json_reply({"ok": True, "count": len(skills), "skills": skills})
+        from daemon import edition
+        self._json_reply({"ok": True, "count": len(skills), "skills": skills, "edition": edition.info()})
 
     # ---- External Sources ----
 

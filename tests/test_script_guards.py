@@ -214,7 +214,8 @@ def run_update_precheck_checks(tmp: Path):
     work = tmp / "upd"
     skills = work / "skills"
     forge = skills / "skill-forge"
-    (forge / "daemon").mkdir(parents=True)
+    shutil.copytree(ROOT / "daemon", forge / "daemon",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.log"))
     (forge / "templates").mkdir(parents=True)
     # 用打桩 precheck 顶掉真的那个（真的逻辑在 test_precheck.py 里测）
     (forge / "daemon" / "__init__.py").write_text("", encoding="utf-8")
@@ -237,7 +238,7 @@ def run_update_precheck_checks(tmp: Path):
     bind = work / "bin"
     bind.mkdir()
     g = bind / "git"
-    g.write_text(FAKE_GIT, encoding="utf-8")
+    g.write_text(FAKE_GIT, encoding="utf-8", newline="\n")
     g.chmod(g.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
     def run(env_extra):
@@ -246,9 +247,8 @@ def run_update_precheck_checks(tmp: Path):
         # 正斜杠：假 git 里是 `cp -r "$SF_FAKE_REPO"`，反斜杠会被 bash 当转义符
         # 吃掉，cp 找不到源（实测 `cp: cannot create directory ...`）。
         env["SF_FAKE_REPO"] = repo.as_posix()
-        # ⚠️ 必须 MSYS 形式 + `:` 分隔 —— 见 msys_path() 的注释。
-        # 写错的话假 git 不生效，脚本会去连真网络（探针就是这么挂住的）。
-        env["PATH"] = msys_path(bind) + ":" + env["PATH"]
+        # Keep the inherited Windows PATH in one format; MSYS converts it at startup.
+        env["PATH"] = str(bind) + os.pathsep + env["PATH"]
         env.update(env_extra)
         return subprocess.run([BASH, str(ROOT / "scripts" / "update.sh"), "real-skill"],
                               capture_output=True, text=True, errors="replace",

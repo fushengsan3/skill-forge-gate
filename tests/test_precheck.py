@@ -27,6 +27,7 @@ import sys
 import tempfile
 import types
 from pathlib import Path
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -62,7 +63,7 @@ def boom(*a, **k):
 
 
 @contextlib.contextmanager
-def with_verify(fakes):
+def with_verify(fakes, remote_audit=False):
     """把 verify/ 的某几层换成假的，其余保持真的。退出时还原。"""
     import verify
     for n in LAYER_NAMES:
@@ -74,7 +75,11 @@ def with_verify(fakes):
         sys.modules[f"verify.{n}"] = m
         setattr(verify, n, m)
     try:
-        yield
+        # Only explicit sandbox unit cases enter this mocked branch. The actual
+        # privacy policy remains disabled, and all remote layers are test doubles.
+        policy = patch('daemon.privacy.allow_remote_audit', return_value=True) if remote_audit else contextlib.nullcontext()
+        with policy:
+            yield
     finally:
         for n in LAYER_NAMES:
             sys.modules[f"verify.{n}"] = saved_mod[n]
@@ -249,7 +254,16 @@ def run_checks(tmp: Path):
     check(any(L["verdict"] == "ERROR" and L["kind"] == "external" for L in r["layers"]),
           "但如实标注成 ERROR")
 
-    print("--- 6. L5 前置缺失要**快速**跳过 ---")
+    print("--- 6. 当前隐私策略不运行 L5；另测允许审计时的内部边界 ---")
+    policy_calls = []
+    policy_fakes = green()
+    policy_fakes['l5_sandbox'] = l5_fake(run=lambda p, t: policy_calls.append('ran') or v('PASS'))
+    with with_verify(policy_fakes):
+        policy_result = precheck.verify_repo(tmp, 'u', skills_dir=tmp)
+    policy_layer = next(layer for layer in policy_result['layers'] if layer['name'] == 'L5 沙箱')
+    check(policy_layer['verdict'] == 'SKIPPED' and '隐私' in policy_layer['reason'],
+          '实际隐私策略仍跳过 L5，并说明原因')
+    check(not policy_calls, '实际隐私策略不调用沙箱')
     # 让假 L5 如实回答"没有凭据"，于是走的是真实的跳过分支。
     # 不这么写的话，这条用例的结果取决于跑测试那台机器装没装 Docker、
     # 配没配密钥 —— 那种用例在本机绿、在 CI 上薛定谔。
@@ -258,7 +272,7 @@ def run_checks(tmp: Path):
     f["l5_sandbox"] = l5_fake(
         has_token=False,
         run=lambda p, t: called.append("ran") or v("PASS", ""))
-    with with_verify(f):
+    with with_verify(f, remote_audit=True):
         r = precheck.verify_repo(tmp, "u", skills_dir=tmp)
     l5 = [L for L in r["layers"] if L["name"] == "L5 沙箱"][0]
     check(l5["verdict"] == "SKIPPED", "前置缺失时 L5 标为 SKIPPED", l5["reason"])
@@ -272,7 +286,7 @@ def run_checks(tmp: Path):
     print("--- 6a-2. 凭据存在但读不出来 ≠ 没配 ---")
     f = green()
     f["l5_sandbox"] = l5_fake(has_token=False, key_note="unreadable: 凭据库坏了")
-    with with_verify(f):
+    with with_verify(f, remote_audit=True):
         r = precheck.verify_repo(tmp, "u", skills_dir=tmp)
     l5 = [L for L in r["layers"] if L["name"] == "L5 沙箱"][0]
     check(l5["verdict"] == "SKIPPED", "照旧跳过", l5["verdict"])
@@ -291,7 +305,7 @@ def run_checks(tmp: Path):
     # 2026-10-06 改成带原因，就是为了让跳过时能说清是"没装"还是"守护进程没起"。
     precheck._docker_available = lambda: (True, "")
     try:
-        with with_verify(f):
+        with with_verify(f, remote_audit=True):
             r = precheck.verify_repo(tmp, "u", skills_dir=tmp)
     finally:
         precheck._docker_available = real_docker_avail
@@ -643,7 +657,7 @@ def run_silent_failure_checks(tmp: Path):
     real_avail = precheck._docker_available
     precheck._docker_available = lambda: (False, "这台机器没有 docker 命令（不在 PATH 里）")
     try:
-        with with_verify(f):
+        with with_verify(f, remote_audit=True):
             r = precheck.verify_repo(tmp, "u", skills_dir=tmp)
     finally:
         precheck._docker_available = real_avail
@@ -711,7 +725,7 @@ def run_layer_reason_checks(tmp: Path):
     real_avail = precheck._docker_available
     precheck._docker_available = lambda: (True, "")
     try:
-        with with_verify(f):
+        with with_verify(f, remote_audit=True):
             r = precheck.verify_repo(tmp, "u", skills_dir=tmp)
     finally:
         precheck._docker_available = real_avail

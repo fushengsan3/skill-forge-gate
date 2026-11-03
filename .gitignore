@@ -87,3 +87,6 @@ desktop.ini
 问题清单-*.md
 明日计划-*.md
 PROGRESS.md
+
+# Local release packages
+dist/

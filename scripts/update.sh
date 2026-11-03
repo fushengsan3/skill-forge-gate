@@ -57,11 +57,13 @@ if [[ ! -d "$TARGET_DIR" ]]; then
 fi
 
 # 读取来源信息
-SOURCE_INFO=$(python3 -c "
-import json
-data = json.loads(open('$SOURCES_FILE').read())
-print(json.dumps(data.get('$SKILL_NAME', {})))
-")
+SOURCE_INFO=$(python3 - "$SOURCES_FILE" "$SKILL_NAME" <<'PYEOF'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = json.load(f)
+print(json.dumps(data.get(sys.argv[2], {})))
+PYEOF
+)
 
 if [[ "$SOURCE_INFO" == "{}" ]]; then
     echo "{\"error\": \"skill '$SKILL_NAME' 在 sources.json 中无记录\"}" >&2
@@ -152,13 +154,20 @@ mv "$TMP_UPDATE" "$TARGET_DIR"
 
 # 更新 SHA
 NEW_SHA=$(cd "$TARGET_DIR" && git rev-parse HEAD 2>/dev/null || echo "unknown")
-python3 -c "
-import json
-sf = open('$SOURCES_FILE'); data = json.load(sf); sf.close()
-data['$SKILL_NAME']['installed_sha'] = '$NEW_SHA'
-data['$SKILL_NAME']['updated_at'] = '$(date -u +%Y-%m-%dT%H:%M:%SZ)'
-open('$SOURCES_FILE','w').write(json.dumps(data, ensure_ascii=False, indent=2))
-"
+python3 - "$SOURCES_FILE" "$SKILL_NAME" "$NEW_SHA" "$PRECHECK_JSON" "$SKILL_FORGE" <<'PYEOF'
+import datetime, json, sys
+sf_path, name, sha, report, forge_root = sys.argv[1:]
+sys.path.insert(0, forge_root)
+from daemon.installer import _trust_level, _trust_note
+verdict = json.loads(report)
+with open(sf_path, encoding="utf-8") as f:
+    data = json.load(f)
+data[name].update(installed_sha=sha,
+                  updated_at=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                  trust_level=_trust_level(verdict), trust_note=_trust_note(verdict))
+with open(sf_path, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+PYEOF
 
 # 同步到 Codex：只在本机启用后生效，错误单独报告，不把安装成功说成失败。
 if [[ -f "$SKILL_FORGE/daemon/codex_sync.py" && -f "$SKILL_FORGE/templates/codex-sync.json" ]]; then
@@ -167,4 +176,8 @@ if [[ -f "$SKILL_FORGE/daemon/codex_sync.py" && -f "$SKILL_FORGE/templates/codex
         || echo 'Codex 同步未完成，可运行 python -m daemon.codex_sync 重试。' >&2
 fi
 
-echo "{\"ok\": true, \"name\": \"$SKILL_NAME\", \"old_sha\": \"$OLD_SHA\", \"new_sha\": \"$NEW_SHA\", \"backup\": \"$BACKUP_PATH\"}"
+python3 - "$SKILL_NAME" "$OLD_SHA" "$NEW_SHA" "$BACKUP_PATH" "$PRECHECK_JSON" <<'PYEOF'
+import json, sys
+print(json.dumps(dict(ok=True, name=sys.argv[1], old_sha=sys.argv[2], new_sha=sys.argv[3],
+                      backup=sys.argv[4], verify=json.loads(sys.argv[5])), ensure_ascii=False))
+PYEOF

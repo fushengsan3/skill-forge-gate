@@ -54,6 +54,14 @@ PROMPTS = {
 }
 
 
+# A coreless distribution has no L2 check to describe in its credential prompt.
+from daemon import edition
+if edition.ID == "coreless":
+    title, prompt, hint = PROMPTS[credentials.GITHUB_TOKEN]
+    PROMPTS[credentials.GITHUB_TOKEN] = (title, prompt.replace(
+        "L2 来源检查可能跳过", "来源数据可能暂时不可用"), hint)
+
+
 class DialogBusy(Exception):
     """已经有一个输入框开着。"""
 
