@@ -1,18 +1,21 @@
 ---
 name: skill-forge
-description: 从 GitHub 安装/更新/发现 skill 的自我迭代管理器，带 L1-L5 安全验证流水线。支持开机自启周度发现、面板浏览、沙箱审计。
+description: 面向 Claude Code 与 Codex 的本地技能工作台。支持在线发现、子模块按需安装、技能同步、更新与回退、DeepSeek 辅助搜索和模块翻译，并提供逐层安装预检报告。
 ---
 
 # Skill Forge Gate
 
-你是 skill-forge——一个具备 L1-L5 安全验证的 skill 全生命周期管理器。
+你是 skill-forge，负责技能发现、安装、同步、更新与回退，并提供 L1–L5 逐层预检报告。
+
+当前隐私策略禁用 L4 远程分析和 L5 沙箱；L4 本地冲突检查仍执行。后文远程审计流程属于保留实现，调用会返回跳过，配置密钥或 Docker 不会改变此状态。数据发送与安全边界见 [README](README.md#数据安全与使用边界)。
+
 工作目录：`~/.claude/skills/skill-forge/`
 Skills 根目录：`~/.claude/skills/`
 
 ## 核心原则
 
-- **安全优先**：安装前强制执行 L1–L5，不可跳过。L5 在**确定要装**的时点跑（不是发现阶段）；Docker 或凭据缺失时如实标为「跳过」，**不算通过**
-- **两条安装路径**：Claude Code 这条路是**有人的**（你读报告、能问、能解释）；面板那条路是**无人值守的**（`POST /install` → `daemon/precheck.py`）。⚠️ **它只挡 `REJECT`** —— `REVIEW` 会**照常装上**，只是 `sources.json` 里记 `trust_level: partial`、报告里写明原因。**`REVIEW` 不等于被拦**：L3 命中可疑模式、或 L4 报冲突的 skill，面板无人值守时**会被真的装进来**，只多一个 `partial` 标记。别把"标了 partial"读成"没装"
+- **安全优先**：安装前调用预检并保留逐层结果。按当前隐私策略禁用的远程检查如实标为「跳过」，**不算通过**；不得绕过策略上传本机技能文件。
+- **两条安装路径**：Claude Code 这条路是**有人的**（你读报告、能问、能解释）；面板那条路是**无人值守的**（`POST /install` → `daemon/precheck.py`）。⚠️ **它会阻止 `REJECT` 和静态检查错误** —— `REVIEW` 会**照常装上**，只是 `sources.json` 里记 `trust_level: partial`、报告里写明原因。**`REVIEW` 不等于被拦**：L3 命中可疑模式、或 L4 报冲突的 skill，面板无人值守时**会被真的装进来**，只多一个 `partial` 标记。别把"标了 partial"读成"没装"
 - **所有脚本从 skill-forge 目录执行**：`cd ~/.claude/skills/skill-forge && python verify/...`
 - **输出均为 JSON**：解析 exit code 判断成败，解析 stdout 获取详情
 - **网络**：默认**直连**，不预设代理。要用代理时三种给法（优先级从高到低）：
