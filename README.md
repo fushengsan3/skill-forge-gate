@@ -16,6 +16,8 @@
 
 两个版本共用安装管理代码，分别打包、同时维护。面板顶部会显示当前版本。
 
+[下载安装包](https://github.com/fushengsan3/skill-forge-gate/releases/latest)：在 Assets 中选择 `full.zip` 或 `coreless.zip` 结尾的文件。GitHub 自动生成的 Source code 是完整版源码。
+
 | 能力 | 完整版 `full` | 无核版 `coreless` |
 |---|---|---|
 | 发现、AI 搜索、翻译、工具版本与模块选择 | 支持 | 支持 |

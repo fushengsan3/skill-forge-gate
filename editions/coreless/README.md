@@ -21,7 +21,7 @@
 
 ## 首次安装
 
-使用 `skill-forge-gate-coreless.zip`，将其中的 `skill-forge` 文件夹放到 `%USERPROFILE%\.claude\skills\skill-forge`。目录名仍须为 `skill-forge`。
+从 [GitHub Releases](https://github.com/fushengsan3/skill-forge-gate/releases/latest) 下载 `skill-forge-gate-coreless.zip`，将其中的 `skill-forge` 文件夹放到 `%USERPROFILE%\.claude\skills\skill-forge`。目录名仍须为 `skill-forge`，不要选择 GitHub 自动生成的 Source code。
 
 在 PowerShell 中执行：
 
