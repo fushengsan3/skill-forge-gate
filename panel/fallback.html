@@ -420,6 +420,16 @@ button, a, select, input { -webkit-tap-highlight-color: transparent; }
 .edition-badge {display:inline-block;margin-top:7px;padding:2px 7px;border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text-dim)}
 .edition-notice {margin:0 0 18px;padding:12px 16px;border:1px solid var(--border);border-left:3px solid var(--secondary);border-radius:8px;background:var(--surface);color:var(--text-dim);font-size:13px;line-height:1.6}
 .edition-notice[hidden] {display:none}
+.feedback-fields {display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}
+.feedback-field {display:block;margin:14px 0;font-size:12px;color:var(--text-dim)}
+.feedback-fields .feedback-field {margin:0}
+.feedback-field input,.feedback-field select,.feedback-field textarea {display:block;width:100%;box-sizing:border-box;margin-top:7px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-input);color:var(--text);font:inherit;line-height:1.6}
+.feedback-field textarea {resize:vertical;min-height:100px}
+.feedback-recipient {font-size:13px;overflow-wrap:anywhere}
+.feedback-status {min-height:18px;font-size:12px;line-height:1.6;color:var(--text-dim)}
+#feedback-mail[aria-disabled="true"] {opacity:.5;cursor:not-allowed}
+#feedback-modal .modal-foot {flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:650px){.sidebar-foot{flex-wrap:wrap}.feedback-fields{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -440,6 +450,7 @@ button, a, select, input { -webkit-tap-highlight-color: transparent; }
       <div id="theme-swatches" class="theme-swatches" aria-hidden="true"></div>
       <p id="theme-note" data-lang="theme_note">选择保存在本机浏览器</p>
       <button class="nav-item" id="btn-settings"><span class="nav-icon" aria-hidden="true">⚙</span><span data-lang="settings">设置</span></button>
+      <button class="nav-item" id="btn-feedback"><span class="nav-icon" aria-hidden="true">✉</span><span data-lang="feedback">反馈</span></button>
     </div>
   </aside>
   <main class="container">
@@ -595,6 +606,26 @@ button, a, select, input { -webkit-tap-highlight-color: transparent; }
       <span style="flex:1"></span>
       <button class="btn btn-ghost btn-sm" id="btn-settings-close2" data-lang="close">关闭</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="feedback-modal" role="dialog" aria-modal="true" aria-labelledby="feedback-heading">
+  <div class="modal">
+    <div class="modal-head"><h3 id="feedback-heading" data-lang="feedback_heading">反馈与建议</h3><button class="btn btn-ghost btn-sm" id="btn-close-feedback" data-lang="close">关闭</button></div>
+    <div class="modal-body">
+      <div class="feedback-recipient"><span data-lang="feedback_to">收件人</span>：<strong>fushengsan3@gmail.com</strong></div>
+      <p class="modal-hint" data-lang="feedback_hint">填写后打开邮件草稿，由你确认发送。主题包含类别和版本，便于归类。</p>
+      <div class="feedback-fields">
+        <label class="feedback-field"><span data-lang="feedback_category">反馈类型</span><select id="feedback-category"><option value="bug" data-lang="feedback_bug">问题反馈</option><option value="feature" data-lang="feedback_feature">功能建议</option><option value="other" data-lang="feedback_other">其他</option></select></label>
+        <label class="feedback-field"><span data-lang="feedback_tool">涉及工具</span><select id="feedback-tool"><option value="general" data-lang="feedback_general">工作台 / 不限工具</option><option value="claude">Claude Code</option><option value="codex">Codex</option><option value="both">Claude Code + Codex</option></select></label>
+      </div>
+      <label class="feedback-field" for="feedback-title"><span data-lang="feedback_title">标题（必填，最多 100 字）</span><input id="feedback-title" maxlength="100" autocomplete="off" data-lang-placeholder="feedback_title_placeholder"></label>
+      <label class="feedback-field" for="feedback-details"><span data-lang="feedback_details">反馈内容（必填，最多 1800 字）</span><textarea id="feedback-details" rows="5" maxlength="1800" data-lang-placeholder="feedback_details_placeholder"></textarea></label>
+      <p class="modal-hint" data-lang="feedback_privacy">仅使用你填写的内容和当前发行版标识，不自动附带日志、路径、密钥或安装清单。请勿粘贴私人信息。</p>
+      <label class="feedback-field" for="feedback-preview"><span data-lang="feedback_preview">邮件正文预览</span><textarea id="feedback-preview" rows="5" readonly></textarea></label>
+      <div class="feedback-status" id="feedback-status" role="status" aria-live="polite"></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost btn-sm" id="feedback-copy" disabled data-lang="feedback_copy">复制反馈内容</button><a class="btn btn-primary btn-sm" id="feedback-mail" role="button" tabindex="0" aria-disabled="true" data-lang="feedback_open">打开邮件草稿</a></div>
   </div>
 </div>
 
@@ -828,6 +859,21 @@ function closeModulePreview() {
 }
 
 
+Object.assign(LANG.zh, {
+  feedback:'反馈', feedback_heading:'反馈与建议', feedback_to:'收件人', feedback_category:'反馈类型', feedback_bug:'问题反馈', feedback_feature:'功能建议', feedback_other:'其他', feedback_tool:'涉及工具', feedback_general:'工作台 / 不限工具',
+  feedback_hint:'填写后打开邮件草稿，由你确认发送。主题包含类别和版本，便于归类。',
+  feedback_title:'标题（必填，最多 100 字）', feedback_title_placeholder:'用一句话描述问题或建议', feedback_details:'反馈内容（必填，最多 1800 字）', feedback_details_placeholder:'可填写操作步骤、预期结果和实际结果，或描述你希望增加的功能。',
+  feedback_privacy:'仅使用你填写的内容和当前发行版标识，不自动附带日志、路径、密钥或安装清单。请勿粘贴私人信息。', feedback_preview:'邮件正文预览', feedback_copy:'复制反馈内容', feedback_open:'打开邮件草稿', feedback_edition:'发行版',
+  feedback_invalid:'请填写标题（1–100 字）和反馈内容（1–1800 字）。', feedback_copied:'已复制收件人、主题和正文，可粘贴到邮箱发送。', feedback_copy_manual:'自动复制不可用，请手动复制下方已选中的正文，收件人见上方。', feedback_mail_opened:'已请求打开邮件草稿，请在邮件应用中确认发送；本面板无法确认送达。若草稿未打开或内容不完整，请使用“复制反馈内容”。'
+});
+Object.assign(LANG.en, {
+  feedback:'Feedback', feedback_heading:'Send feedback', feedback_to:'To', feedback_category:'Category', feedback_bug:'Bug report', feedback_feature:'Feature request', feedback_other:'Other', feedback_tool:'Affected tool', feedback_general:'Workspace / any tool',
+  feedback_hint:'Open an email draft, then review and send it in your mail app. Category and edition in the subject help group feedback.',
+  feedback_title:'Title (required, up to 100 characters)', feedback_title_placeholder:'Briefly describe the issue or suggestion', feedback_details:'Details (required, up to 1800 characters)', feedback_details_placeholder:'Describe steps, expected and actual behavior, or the feature you would like.',
+  feedback_privacy:'Only your entries and the current edition are included. Logs, paths, keys and installed skills are not attached automatically. Do not paste private information.', feedback_preview:'Email body preview', feedback_copy:'Copy feedback', feedback_open:'Open email draft', feedback_edition:'Edition',
+  feedback_invalid:'Enter a title (1–100 characters) and details (1–1800 characters).', feedback_copied:'Recipient, subject and body copied. Paste them into your mail app to send.', feedback_copy_manual:'Clipboard unavailable. Manually copy the selected body and use the recipient shown above.', feedback_mail_opened:'Requested an email draft. Review and send it in your mail app; this panel cannot confirm delivery. If the draft is missing or incomplete, use Copy feedback.'
+});
+
 const CORELESS_LANG = {
   zh: {pending_check:'待安装', inspector_step3:'加入队列并安装', desc_installed:'管理已安装技能及工具版本。', trust_unverified:'未做安全验证', trust_hint:'这是安装时保存的记录。无核版不执行安全验证，历史记录仅供参考。'},
   en: {pending_check:'Queued', inspector_step3:'Queue and install', desc_installed:'Manage installed skills and tool versions.', trust_unverified:'Not security-checked', trust_hint:'Status recorded at installation. Coreless performs no security verification; earlier records are historical.'}
@@ -881,13 +927,14 @@ function applyLang() {
     var key = el.getAttribute('data-lang');
     if (el.tagName === 'OPTION' && el.hasAttribute('data-lang-opt')) {
       // handled in renderSkills
-    } else if (el.tagName === 'INPUT' && el.hasAttribute('data-lang-placeholder')) {
+    } else if ((el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && el.hasAttribute('data-lang-placeholder')) {
       el.placeholder = t(el.getAttribute('data-lang-placeholder'));
     } else {
       el.textContent = t(key);
     }
   });
   applyEditionUI();
+  refreshFeedbackDraft();
   // Update optgroup labels
   document.querySelectorAll('[data-lang-opt]').forEach(el => {
     var key = el.getAttribute('data-lang-opt');
@@ -2389,6 +2436,28 @@ function bindStaticHandlers() {
   on('btn-en', 'click', function() { setLang('en'); });
   on('btn-freeze', 'click', function() { frozenDate ? unfreezePeriod() : freezePeriod(); });
   on('btn-settings', 'click', openSettings);
+  on('btn-feedback', 'click', openFeedback);
+  on('btn-close-feedback', 'click', closeFeedback);
+  on('feedback-copy', 'click', copyFeedback);
+  on('feedback-mail', 'click', function(e) {
+    var draft = refreshFeedbackDraft();
+    if (!draft.ok) e.preventDefault();
+    document.getElementById('feedback-status').textContent = t(draft.ok ? 'feedback_mail_opened' : 'feedback_invalid');
+  });
+  ['feedback-category','feedback-tool','feedback-title','feedback-details'].forEach(function(id) {
+    on(id, 'input', function() { refreshFeedbackDraft(); document.getElementById('feedback-status').textContent = ''; });
+    on(id, 'change', refreshFeedbackDraft);
+  });
+  on('feedback-modal', 'click', function(e) { if (e.target.id === 'feedback-modal') closeFeedback(); });
+  on('feedback-modal', 'keydown', function(e) {
+    if (e.key === 'Escape') { e.preventDefault(); closeFeedback(); }
+    if (e.key === 'Tab') {
+      var controls = Array.from(this.querySelectorAll('button:not([disabled]),input,select,textarea,a[href]'));
+      var first = controls[0], last = controls[controls.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
   on('btn-close-settings', 'click', closeSettings);
   on('btn-settings-close2', 'click', closeSettings);
   on('btn-close-modules', 'click', closeModulePreview);
@@ -2434,6 +2503,50 @@ function bindStaticHandlers() {
 // 初始化 — 立即渲染
 // ============================================================
 // ============================================================
+// Feedback is composed in memory; opening a draft is not evidence of delivery.
+function buildFeedbackDraft() {
+  var title = document.getElementById('feedback-title').value.trim().replace(/[\r\n]/g, ' ');
+  var details = document.getElementById('feedback-details').value.trim();
+  var category = document.getElementById('feedback-category').value;
+  var tool = document.getElementById('feedback-tool').value;
+  if (!title || title.length > 100 || !details || details.length > 1800 || !['bug','feature','other'].includes(category) || !['general','claude','codex','both'].includes(tool)) return {ok:false};
+  var edition = activeEdition.id === 'coreless' ? (currentLang === 'zh' ? '无核版' : 'Coreless') : (currentLang === 'zh' ? '完整版' : 'Full');
+  var toolName = {general:t('feedback_general'),claude:'Claude Code',codex:'Codex',both:'Claude Code + Codex'}[tool];
+  var subject = '[Skill Forge][' + t('feedback_' + category) + '][' + edition + '] ' + title;
+  var body = ['Skill Forge Gate', t('feedback_category') + ': ' + t('feedback_' + category), t('feedback_edition') + ': ' + edition, t('feedback_tool') + ': ' + toolName, '', title, '', details].join('\n');
+  var recipient = 'fushengsan3@gmail.com';
+  return {ok:true, subject:subject, body:body, mailto:'mailto:' + recipient + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body), copy:'To: ' + recipient + '\nSubject: ' + subject + '\n\n' + body};
+}
+function refreshFeedbackDraft() {
+  var draft = buildFeedbackDraft();
+  var link = document.getElementById('feedback-mail');
+  if (draft.ok) link.href = draft.mailto; else link.removeAttribute('href');
+  link.setAttribute('aria-disabled', String(!draft.ok));
+  document.getElementById('feedback-copy').disabled = !draft.ok;
+  document.getElementById('feedback-preview').value = draft.ok ? draft.body : '';
+  return draft;
+}
+function openFeedback() {
+  refreshFeedbackDraft();
+  document.getElementById('feedback-modal').classList.add('open');
+  document.getElementById('feedback-title').focus();
+}
+function closeFeedback() {
+  document.getElementById('feedback-modal').classList.remove('open');
+  document.getElementById('btn-feedback').focus();
+}
+async function copyFeedback() {
+  var draft = refreshFeedbackDraft();
+  if (!draft.ok) return;
+  try {
+    await navigator.clipboard.writeText(draft.copy);
+    document.getElementById('feedback-status').textContent = t('feedback_copied');
+  } catch (e) {
+    var preview = document.getElementById('feedback-preview'); preview.focus(); preview.select();
+    document.getElementById('feedback-status').textContent = t('feedback_copy_manual');
+  }
+}
+
 // 设置（R6/R9）—— 翻译后端 / AI 模型 / 密钥
 // ============================================================
 // 注意这里的分工：
