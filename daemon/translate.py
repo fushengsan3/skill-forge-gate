@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-翻译模块 — 通过 Google Translate API 将英文简介批量翻译为中文
-使用可乐云代理访问 translate.googleapis.com
+翻译公开来源的简介并复用本地缓存；来源不明的文本不外发。
 """
 import json
+import re
 import urllib.request
 import urllib.parse
 from datetime import datetime
@@ -64,7 +64,8 @@ def _load_cache() -> dict:
     """加载翻译缓存"""
     if CACHE_FILE.exists():
         try:
-            return json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+            data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
         except Exception:
             pass
     return {}
@@ -101,59 +102,80 @@ def _translate_one(text: str, cfg: dict):
     return _api_translate(text), "google"
 
 
-def translate_skills(skills: list) -> list:
-    """
-    为 skill 列表逐条翻译 description → description_zh
-    使用缓存避免重复翻译（daemon 每周跑一次，大部分命中缓存）
+def _has_translation(text):
+    return isinstance(text, str) and bool(re.search(r'[\u4e00-\u9fff]', text))
 
-    后端由 templates/translate-config.json 决定（面板通过 bridge 写），
-    默认 google。见 daemon/translate_config.py。
-    """
-    import time
-    from daemon import translate_config
 
-    cfg = translate_config.load()
-    cache = _load_cache()
-
-    # 收集需要翻译的描述
-    to_translate = []  # [(index, text), ...]
-    for i, s in enumerate(skills):
-        desc = (s.get("description") or "").strip()
-        if not desc:
-            skills[i]["description_zh"] = ""
+def translate_public_descriptions(rows, config=None, *, cache=None):
+    """Caller must establish public provenance before using this shared translator."""
+    from daemon import privacy, translate_ai, translate_config
+    config = translate_config.load() if config is None else config
+    rows = [dict(row) for row in rows]
+    pending = []
+    for index, row in enumerate(rows):
+        original = str(row.get('description') or '').strip()
+        row['description_zh'] = ''
+        if not original:
             continue
-        # 纯中文的直接跳过
-        if _is_chinese(desc):
-            skills[i]["description_zh"] = desc
-            continue
-        # 查缓存
-        if desc in cache:
-            skills[i]["description_zh"] = cache[desc]
-            continue
-        to_translate.append((i, desc))
-
-    if not to_translate:
-        return skills
-
-    # 逐条翻译（避免批量分隔符被翻译接口破坏）
-    for idx, original in to_translate:
-        translated, used = _translate_one(original, cfg)
-        if translated:
-            skills[idx]["description_zh"] = translated
-            cache[original] = translated
+        if _is_chinese(original):
+            row['description_zh'] = original
+        elif cache is not None and _has_translation(cache.get(original)):
+            row['description_zh'] = cache[original]
         else:
-            skills[idx]["description_zh"] = ""
-        # 只有 Google 需要这个间隔（它有免费额度的限流）。
-        # AI 后端是计费的，没必要拖慢。
-        if used == "google":
-            time.sleep(0.3)
+            pending.append({'id':index, 'text':privacy.clean_public_description(original)})
+    if not pending:
+        return rows, ''
+    if config.get('backend') in ('google', 'local'):
+        return rows, '当前使用本地模式，未缓存的简介显示原文；可在设置中启用 DeepSeek 翻译'
+    failures = []
+    for start in range(0, len(pending), 4):
+        batch = pending[start:start + 4]
+        try:
+            response = translate_ai.complete(json.dumps({'items':batch}, ensure_ascii=False),
+                                             config.get('model') or 'deepseek-flash', purpose='public_descriptions')
+            parsed = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', response.strip()))
+            if not isinstance(parsed, list):
+                raise ValueError('invalid translation')
+            allowed = {item['id'] for item in batch}
+            completed = set()
+            for item in parsed:
+                if (isinstance(item, dict) and type(item.get('id')) is int and item['id'] in allowed
+                        and _has_translation(item.get('text'))):
+                    index = item['id']
+                    rows[index]['description_zh'] = item['text'].strip()[:2400]
+                    completed.add(index)
+                    if cache is not None:
+                        cache[str(rows[index]['description']).strip()] = rows[index]['description_zh']
+            if completed != allowed:
+                failures.append('模型返回的译文不完整')
+        except translate_ai.AIBackendError as exc:
+            failures.append(str(exc))
+            break  # A bad key/model or outage should not repeat for every batch.
+        except (ValueError, TypeError, KeyError):
+            failures.append('模型返回格式不正确')
+    warning = '部分简介翻译不可用，显示原文：' + '；'.join(dict.fromkeys(failures)) if failures else ''
+    return rows, warning
 
-    # 留空也是一种结果，不能只有"没报错"这一个信号
-    blank = sum(1 for i, _ in to_translate if not (skills[i].get("description_zh") or "").strip())
-    if blank:
-        log(f"有 {blank}/{len(to_translate)} 条两个后端都没译出来，description_zh 已留空")
 
-    _save_cache(cache)
+def translate_skills(skills: list, report=None) -> list:
+    """Translate only descriptions marked public by a trusted fetch boundary."""
+    cache = _load_cache()
+    public = [row for row in skills if row.get('_description_public') is True]
+    translated, warning = translate_public_descriptions(public, cache=cache)
+    for row, result in zip(public, translated):
+        row['description_zh'] = result['description_zh']
+    for row in skills:
+        if row.get('_description_public') is True:
+            continue
+        original = str(row.get('description') or '').strip()
+        row['description_zh'] = original if _is_chinese(original) else (
+            cache.get(original, '') if _has_translation(cache.get(original)) else '')
+    if warning:
+        log(warning)
+    if report is not None:
+        report['warning'] = warning
+    if public:
+        _save_cache(cache)
     return skills
 
 

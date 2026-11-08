@@ -6,7 +6,7 @@
 
 改这个设置的是**面板**，但执行翻译的是 **daemon**（每周扫描时批量翻 description）。
 daemon 是独立进程，读不到浏览器的 localStorage —— 如果配置只存浏览器，
-用户在面板上选了 AI 后端，实际扫描时还是走 Google，而且不会有任何报错。
+用户在面板上选了 AI 后端，实际扫描时仍只使用本地缓存。
 这种"设置看起来生效了但其实没有"的失败最难查。
 
 所以配置的真源是磁盘文件：
@@ -23,8 +23,8 @@ CONFIG_FILE = SKILL_ROOT / "templates" / "translate-config.json"
 BACKENDS = ("google", "ai")
 
 DEFAULTS = {
-    "backend": "google",     # 默认 Google，免费且不依赖任何密钥
-    "model": "",             # AI 后端用的模型 ID（来自 Claude Code 配置）
+    "backend": "google",     # 兼容旧配置名称；当前表示本地缓存模式，不联网翻译
+    "model": "",             # 已授权 DeepSeek 官方接口的模型 ID
     "prompt": "",            # 用哪个内置提示词；空 = 用 manifest 里的默认
 }
 

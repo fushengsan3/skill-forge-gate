@@ -115,7 +115,11 @@ def search_online(query):
     if not ranking.get('ok'):
         return ranking
     selected = [candidates[i] for i in ranking['indices']]
+    from daemon.translate import translate_skills
+    translation_report = {}
+    translate_skills(selected, report=translation_report)
     warnings = list(dict.fromkeys(failures))
+    if translation_report.get('warning'): warnings.append(translation_report['warning'])
     if ranking.get('warning'): warnings.append(ranking['warning'])
     if len(tags) > 3: warnings.append('在线检索使用了前三个通用功能类型')
     return {'ok':True, 'scope':'online', 'mode':ranking['mode'], 'skills':selected,

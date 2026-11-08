@@ -1,6 +1,7 @@
 """Shared, privacy-limited AI client for public metadata and capability tags."""
 import json
 import re
+import urllib.error
 import urllib.request
 
 from daemon import credentials, privacy
@@ -59,7 +60,8 @@ def complete(text: str, model: str, system_prompt: str = '', *, purpose: str = '
         raise AIBackendError('未配置 AI 密钥')
     if token in text:
         raise AIBackendError('输入中包含密钥，已取消请求')
-    body = {'model': resolved, 'max_tokens': MAX_TOKENS, 'temperature': 0,
+    body = {'model': resolved, 'max_tokens': 4096 if purpose == 'public_descriptions' else MAX_TOKENS, 'temperature': 0,
+            'thinking': {'type': 'disabled'},
             'messages': [{'role':'system', 'content':SYSTEM_PROMPTS[purpose]},
                          {'role':'user', 'content':text}]}
     req = urllib.request.Request(config['endpoint'], data=json.dumps(body, ensure_ascii=False).encode('utf-8'),
@@ -72,5 +74,9 @@ def complete(text: str, model: str, system_prompt: str = '', *, purpose: str = '
         if not isinstance(out, str) or not out.strip():
             raise ValueError('empty response')
         return out.strip()
+    except urllib.error.HTTPError as exc:
+        reason = {400:'请求参数或模型不可用',401:'密钥认证失败',402:'账户余额不足',
+                  404:'模型不可用，请在设置中选择有效的 DeepSeek 模型',429:'请求过于频繁'}.get(exc.code, '服务暂不可用')
+        raise AIBackendError(f'DeepSeek 请求失败（HTTP {exc.code}）：{reason}') from None
     except Exception as exc:
         raise AIBackendError('DeepSeek 请求失败：' + type(exc).__name__) from None

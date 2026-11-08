@@ -118,6 +118,7 @@ def fetch_jeremylongshore() -> list:
                     plugin = json.loads(resp.read().decode())
                     for skill in plugin.get("skills", []):
                         skill["source"] = "jeremylongshore"
+                        skill['_description_public'] = True
                         skill["plugin"] = item["name"]
                         skills.append(skill)
             except Exception:
@@ -150,6 +151,7 @@ def fetch_github_topic() -> list:
             "pushed_at": repo.get("pushed_at"),
             "updated_at": repo.get("updated_at"),
             "source": "github-topic",
+            "_description_public": True,
         })
     return skills
 
@@ -180,6 +182,7 @@ def fetch_claudskills() -> list:
             selected = skills[:50]
             for s in selected:
                 s["source"] = "claudskills"
+                s['_description_public'] = True
                 # 从 source_url 提取 GitHub 仓库地址
                 source_url = s.get("source_url", "")
                 if source_url and "github.com" in source_url and not s.get("url"):
@@ -470,6 +473,7 @@ def search_claudskills(tags) -> dict:
         content = str(item.get('name') or '') + ' ' + str(item.get('description') or '')
         if not desired.intersection(privacy.capability_tags(content)): continue
         skill = normalize_skill(item, source='claudskills')
+        skill['_description_public'] = True
         if not skill.get('name') or not skill.get('url') or skill['url'] in seen: continue
         seen.add(skill['url'])
         skills.append(skill)
@@ -499,6 +503,7 @@ def search_online(tag: str) -> dict:
         if not isinstance(item, dict) or not item.get('name') or not item.get('html_url'):
             continue
         skill = normalize_skill(item, source='search')
+        skill['_description_public'] = True
         skill['url'] = item['html_url']
         skills.append(skill)
     return {'ok':True, 'skills':skills, 'error':''}
@@ -534,6 +539,7 @@ def search_skills(query: str, top: int = 10, page: int = 1) -> list:
             "stars": repo.get("stargazers_count", 0),
             "url": repo.get("html_url"),
             "source": "search",
+            "_description_public": True,
             "match_score": 1.0,
         })
     return skills

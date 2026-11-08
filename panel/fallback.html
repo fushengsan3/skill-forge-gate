@@ -516,6 +516,7 @@ button, a, select, input { -webkit-tap-highlight-color: transparent; }
     <select id="filter-sort" aria-label="排序 / Sort">
       <option value="score" data-lang-opt="sort_score">按综合评分</option>
       <option value="stars" data-lang-opt="sort_stars">按 Star 数</option>
+      <option value="relevance" data-lang-opt="sort_relevance" disabled hidden>按匹配程度</option>
     </select>
   </div>
   <div id="search-status" class="search-status" role="status" aria-live="polite"></div>
@@ -664,7 +665,7 @@ const LANG = {
   zh: {
     new_found: '新发现', updatable: '可更新', sources: '数据源',
     all_cat: '全部分类', all_status: '全部状态', new_skill: '新 skill', update_skill: '有更新',
-    sort_score: '按综合评分', sort_stars: '按 Star 数', search_placeholder: '搜索...',
+    sort_score: '按综合评分', sort_stars: '按 Star 数', sort_relevance: '按匹配程度', search_placeholder: '搜索...',
     no_results: '没有匹配的技能', no_updates: '试试其他关键词，或调整分类与状态筛选。',
     ext_sources: '📂 外部数据源', filter_sources: '🔍 数据源筛选', add: '添加', save: '💾 保存', fetch_now: '🔄 立即拉取',
     ext_sources_title: '外部数据源管理', ext_sources_desc: '添加 GitHub 仓库或 JSON API 地址以引入更多 skill 数据',
@@ -734,7 +735,7 @@ const LANG = {
   en: {
     new_found: 'New', updatable: 'Updates', sources: 'Sources',
     all_cat: 'All Categories', all_status: 'All Status', new_skill: 'New skill', update_skill: 'Has Update',
-    sort_score: 'By Score', sort_stars: 'By Stars', search_placeholder: 'Search...',
+    sort_score: 'By Score', sort_stars: 'By Stars', sort_relevance: 'By Relevance', search_placeholder: 'Search...',
     no_results: 'No matching skills', no_updates: 'Try another keyword or adjust the filters.',
     ext_sources: '📂 External Sources', filter_sources: '🔍 Source Filter', add: 'Add', save: '💾 Save', fetch_now: '🔄 Fetch',
     ext_sources_title: 'External Data Sources', ext_sources_desc: 'Add GitHub repos or JSON API URLs to import more skills',
@@ -1102,7 +1103,7 @@ function flattenData() {
   var period = PERIODS.length ? PERIODS[currentIndex()] : null;
   allSkills = period ? materialize(period) : legacySkills();
 
-  var catSet = {}, sourceSet = {};
+  var sourceSet = {};
   for (var i = 0; i < allSkills.length; i++) {
     var s = allSkills[i];
     var c = s.category || s._category || '其他';
@@ -1113,26 +1114,11 @@ function flattenData() {
     }
     // 规范化 source 字段
     if (!s.source) s.source = 'github-topic';
-    catSet[c] = true;
     sourceSet[s.source] = true;
   }
 
   // 填充分类下拉。
-  // 换期后分类集合可能不同，所以先清空重建；但尽量保住用户已选的分类。
-  var sel = document.getElementById('filter-category');
-  var prevCat = sel.value;
-  sel.innerHTML = '';
-  var optAll = document.createElement('option');
-  optAll.value = 'all';
-  optAll.textContent = t('all_cat');
-  sel.appendChild(optAll);
-  for (var c2 in catSet) {
-    if (!catSet.hasOwnProperty(c2)) continue;
-    var opt = document.createElement('option');
-    opt.value = c2; opt.textContent = c2;
-    sel.appendChild(opt);
-  }
-  sel.value = catSet[prevCat] ? prevCat : 'all';
+  rebuildCategoryFilter();
 
   // 初始化数据源筛选
   activeSourceFilters = {};
@@ -1148,6 +1134,32 @@ function flattenData() {
   document.getElementById('stat-sources').textContent = Object.keys(sourceSet).length;
 
   renderPeriodBar(period);
+}
+
+function rebuildCategoryFilter() {
+  var catSet = Object.create(null);
+  (onlineResults === null ? allSkills : onlineResults).forEach(function(s) { catSet[s._category] = true; });
+  if (onlineResults === null) Object.keys(SECTIONS_DATA || {}).forEach(function(name) {
+    (SECTIONS_DATA[name].items || []).forEach(function(s) { catSet[s.category || name] = true; });
+  });
+  var sel = document.getElementById('filter-category');
+  var prevCat = sel.value;
+  sel.innerHTML = '';
+  var optAll = document.createElement('option');
+  optAll.value = 'all';
+  optAll.textContent = t('all_cat');
+  sel.appendChild(optAll);
+  for (var c2 in catSet) {
+    var opt = document.createElement('option');
+    opt.value = c2; opt.textContent = c2;
+    sel.appendChild(opt);
+  }
+  sel.value = catSet[prevCat] ? prevCat : 'all';
+
+  var sort = document.getElementById('filter-sort');
+  var relevance = sort.querySelector('[value="relevance"]');
+  relevance.disabled = relevance.hidden = onlineResults === null;
+  if (onlineResults === null && sort.value === 'relevance') sort.value = 'score';
 }
 
 // R3 的状态条：当前是哪一期 / 是否冻结 / 有没有新一期
@@ -1588,17 +1600,56 @@ function fetchExtSources() {
 //
 // 板块里的条目是**完整记录**，所以直接交给 skillCard() 渲染：
 // 于是它们和主网格一样能就地安装/更新，而不是只能看。
-function renderSections() {
+function discoveryFilters() {
+  return {
+    category: document.getElementById('filter-category').value,
+    status: document.getElementById('filter-status').value,
+    sort: document.getElementById('filter-sort').value,
+    query: document.getElementById('search-input').value.trim().toLowerCase()
+  };
+}
+
+function matchesDiscoveryFilter(s, filters) {
+  if (filters.category !== 'all' && s._category !== filters.category) return false;
+  var key = discoveryCardKey(s);
+  var hasUpdate = !completedUpdates.has(key) && (s.status === 'update_available' || !!availableUpdates[key]);
+  if (filters.status === 'update_available' && !hasUpdate) return false;
+  if (filters.status === 'new' && s.status !== 'new') return false;
+  if (onlineResults !== null) return !semanticRank || semanticRank.has(s);
+  if (activeSourceFilters[s.source] === false) return false;
+  return !filters.query || [s.name, s.description, s.description_zh].some(function(value) {
+    return String(value || '').toLowerCase().indexOf(filters.query) !== -1;
+  });
+}
+
+function compareDiscoverySkills(a, b, sort) {
+  if (sort === 'relevance' && semanticRank) return semanticRank.get(a) - semanticRank.get(b);
+  var score = function(s) { return s.score == null ? (s.stars || 0) * 0.7 + (s.installs || s.downloads || 0) * 0.3 : s.score; };
+  var stars = (b.stars || 0) - (a.stars || 0);
+  var scores = score(b) - score(a);
+  return sort === 'stars' ? stars || scores : scores || stars;
+}
+
+function renderSections(filters) {
   var host = document.getElementById('sections-panel');
-  if (!host) return;
+  if (!host) return 0;
   host.innerHTML = '';
+  host.style.display = onlineResults === null ? '' : 'none';
+  if (onlineResults !== null) return 0;
+  filters = filters || discoveryFilters();
+  var visible = 0;
 
   var names = Object.keys(SECTIONS_DATA || {});
-  if (!names.length) return;
 
   names.forEach(function(name) {
     var board = SECTIONS_DATA[name];
     if (!board || !(board.items || []).length) return;
+    var items = board.items.map(function(it) {
+      return Object.assign({}, it, {_category:it.category || name});
+    }).filter(function(s) { return matchesDiscoveryFilter(s, filters); });
+    items.sort(function(a, b) { return compareDiscoverySkills(a, b, filters.sort); });
+    if (!items.length) return;
+    visible += items.length;
 
     var wrap = mkEl('div', 'section-board');
     var head = mkEl('div', 'board-head');
@@ -1606,65 +1657,34 @@ function renderSections() {
     // count 是该板块的**总数**，items 只是前 N 条。两个数都给出来，
     // 才不会被读成"这个板块一共就这么几个"。
     head.appendChild(mkEl('span', 'board-count', currentLang === 'zh'
-      ? '共 ' + board.count + ' 个 · 按 Star 列前 ' + board.items.length + ' 个'
-      : board.count + ' total · top ' + board.items.length + ' by stars'));
+      ? '共 ' + board.count + ' 个 · 已载入 ' + board.items.length + ' 个 · 显示 ' + items.length + ' 个 · ' + t('sort_' + filters.sort)
+      : board.count + ' total · ' + board.items.length + ' loaded · ' + items.length + ' shown · ' + t('sort_' + filters.sort)));
     wrap.appendChild(head);
 
     var row = mkEl('div', 'board-row');
-    board.items.forEach(function(it) {
-      // 这些记录来自 GitHub 搜索，字段比发现流水线的少。
-      // 就地补上 skillCard 需要的那个：不补的话卡片上会渲染出 "🏷 undefined"。
-      // 板块名本身就是最合适的分类标签 —— 比编一个假类目诚实。
-      var s = {};
-      for (var k in it) {
-        if (Object.prototype.hasOwnProperty.call(it, k)) s[k] = it[k];
-      }
-      s._category = name;
-      row.appendChild(skillCard(s));
-    });
+    items.forEach(function(s) { row.appendChild(skillCard(s)); });
     wrap.appendChild(row);
     host.appendChild(wrap);
   });
+  return visible;
 }
 
 function renderSkills() {
-  var catFilter = document.getElementById('filter-category').value;
-  var statusFilter = document.getElementById('filter-status').value;
-  var sortBy = document.getElementById('filter-sort').value;
-  var search = document.getElementById('search-input').value.toLowerCase();
-
+  var filters = discoveryFilters();
   var filtered = (onlineResults === null ? allSkills : onlineResults).filter(function(s) {
-    if (catFilter !== 'all' && s._category !== catFilter) return false;
-    if (statusFilter !== 'all' && s.status !== statusFilter) return false;
-    if (onlineResults === null && !activeSourceFilters[s.source]) return false;
-    if (semanticRank) return semanticRank.has(s);
-    if (search && (s.name || '').toLowerCase().indexOf(search) === -1
-        && (s.description || '').toLowerCase().indexOf(search) === -1) return false;
-    return true;
+    return matchesDiscoveryFilter(s, filters);
   });
-
-  // 排序 — 按选定指标 + 同分时用另一指标打破平局
   filtered.sort(function(a, b) {
-    if (semanticRank) return semanticRank.get(a) - semanticRank.get(b);
-    var primary, secondary;
-    if (sortBy === 'stars') {
-      primary = (b.stars || 0) - (a.stars || 0);
-      secondary = (b.score || 0) - (a.score || 0);
-    } else {
-      primary = (b.score || 0) - (a.score || 0);
-      secondary = (b.stars || 0) - (a.stars || 0);
-    }
-    return primary !== 0 ? primary : secondary;
+    return compareDiscoverySkills(a, b, filters.sort);
   });
 
   var grid = document.getElementById('skills-grid');
-  var sections = document.getElementById('sections-panel');
-  if (sections) sections.style.display = semanticRank ? 'none' : '';
+  var visibleBoards = renderSections(filters);
   var empty = document.getElementById('empty-state');
 
   if (filtered.length === 0) {
     grid.innerHTML = '';
-    empty.style.display = 'block';
+    empty.style.display = visibleBoards ? 'none' : 'block';
     var emptyTitle = empty.querySelector('[data-lang="no_results"]');
     var emptySub = empty.querySelector('[data-lang="no_updates"]');
     if (emptyTitle) emptyTitle.textContent = semanticRank ? (currentLang === 'zh' ? '没有找到匹配的技能' : 'No matching skills') : t('no_results');
@@ -1722,8 +1742,10 @@ function searchWithAI() {
       });
       semanticRank = new Map();
       onlineResults.forEach(function(item, rank) { semanticRank.set(item, rank); });
+      rebuildCategoryFilter();
       document.getElementById('filter-category').value = 'all';
       document.getElementById('filter-status').value = 'all';
+      document.getElementById('filter-sort').value = 'relevance';
       status.textContent = '线上检索 · ' + (result.mode === 'ai' ? 'AI 匹配' : '本地排序') + ' · ' + onlineResults.length + ' 项'
                          + (result.warning ? ' · ' + result.warning : '');
       renderSkills();
@@ -1732,6 +1754,7 @@ function searchWithAI() {
       if (requestId !== semanticRequest) return;
       onlineResults = [];
       semanticRank = new Map();
+      rebuildCategoryFilter();
       status.textContent = (currentLang === 'zh' ? '搜索未完成：' : 'Search failed: ') + e.message;
       renderSkills();
     })
@@ -1769,11 +1792,16 @@ function mkEl(tag, className, text) {
   return node;
 }
 
-function skillCard(s) {
+function discoveryCardKey(s) {
   var matchingInstalled = (localInstalled() || []).filter(function(x) { return x.name === s.name; });
   var cardTool = matchingInstalled.some(function(x) { return x.tool !== 'codex'; }) ? 'claude' :
                  (matchingInstalled.length ? 'codex' : 'claude');
-  var cardKey = cardTool === 'codex' ? 'codex:' + s.name : s.name;
+  return cardTool === 'codex' ? 'codex:' + s.name : s.name;
+}
+
+function skillCard(s) {
+  var cardKey = discoveryCardKey(s);
+  var cardTool = cardKey.indexOf('codex:') === 0 ? 'codex' : 'claude';
   if (availableUpdates[cardKey]) s = Object.assign({}, s, availableUpdates[cardKey]);
   var isNew = s.status === 'new';
   var isUpdate = !completedUpdates.has(cardKey) && (s.status === 'update_available' || !!availableUpdates[cardKey]);
@@ -2492,6 +2520,7 @@ function bindStaticHandlers() {
   on('filter-sort', 'change', renderSkills);
   on('search-input', 'input', function() {
     semanticRequest++; semanticRank = null; onlineResults = null;
+    rebuildCategoryFilter();
     document.getElementById('btn-ai-search').disabled = false;
     document.getElementById('search-status').textContent = '';
     renderSkills();

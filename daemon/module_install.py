@@ -81,36 +81,8 @@ def inspect_repo(repo, name):
 
 def translate_public_modules(modules):
     """Translate only public repository descriptions after removing private indicators."""
-    modules = [dict(module) for module in modules]
-    config = translate_config.load()
-    if config.get('backend') in ('google', 'local'):
-        return modules, '当前使用本地模式，模块简介显示原文'
-    pending = []
-    for index, module in enumerate(modules):
-        description = module.get('description', '')
-        if not description:
-            continue
-        if re.search(r'[\u4e00-\u9fff]', description):
-            module['description_zh'] = description
-        else:
-            pending.append({'id': index, 'text': privacy.clean_public_description(description)})
-    model = config.get('model') or 'deepseek-flash'
-    for start in range(0, len(pending), 8):
-        batch = pending[start:start + 8]
-        try:
-            response = translate_ai.complete(json.dumps({'items': batch}, ensure_ascii=False), model,
-                                             purpose='public_descriptions')
-            parsed = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', response.strip()))
-            if not isinstance(parsed, list):
-                raise ValueError('invalid translation')
-            allowed = {item['id'] for item in batch}
-            for item in parsed:
-                if (isinstance(item, dict) and type(item.get('id')) is int
-                        and item['id'] in allowed and isinstance(item.get('text'), str)):
-                    modules[item['id']]['description_zh'] = item['text'][:500]
-        except (translate_ai.AIBackendError, ValueError, TypeError, KeyError):
-            return modules, '部分模块翻译不可用，显示原文；请检查 DeepSeek 密钥和模型'
-    return modules, ''
+    from daemon.translate import translate_public_descriptions
+    return translate_public_descriptions(modules, translate_config.load())
 
 
 def preview(name, url):
