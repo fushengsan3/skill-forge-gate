@@ -2,9 +2,7 @@
 """
 翻译后端测试（R6）。
 
-重点是**回退**：AI 后端会因为密钥过期、余额不足、模型下线、网络不通而失败，
-这些都不该让整个扫描（连带"发现新 skill"的主流程）跟着失败。
-所以 AI 挂了必须静默退回 Google，而不是抛上去。
+验证配置、本地缓存和来源不明文本不外发。
 
 全程 mock，不发任何真实请求。
 
@@ -113,7 +111,7 @@ def run_checks(cache_file, cfg_file):
 
     calls = []
     skills = [skill("a", "hello world"), skill("b", "纯中文描述")]
-    with patch.object(translate, "_api_translate", side_effect=lambda text: calls.append(text)), \
+    with patch.object(translate_ai, "complete", side_effect=lambda text,*args,**kwargs: calls.append(text)), \
          patch.object(translate_ai, "translate", side_effect=AssertionError("unexpected remote call")), \
          patch("time.sleep", return_value=None):
         translate.translate_skills(skills)

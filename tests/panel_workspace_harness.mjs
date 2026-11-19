@@ -21,6 +21,7 @@ async function openPanel({saved, blocked = false, offline = false} = {}) {
         if (path === '/installed') return reply({ok: true, skills: [{name: 'alpha-skill', tool: 'claude', type: 'remote'}, {name: 'alpha-skill', tool: 'codex', type: 'remote'}]});
         if (path === '/updates') return reply({ok: true, updates: [], checked_names: [], partial: false});
         if (path === '/ext-sources') return reply({ok: true, sources: []});
+        if (path === '/app-update') return reply({ok:true,current_version:'2026.11.19',edition:'full',available:false,phase:'idle'});
         if (path === '/') return reply({ok: true, pending: []});
         throw new Error('Unexpected request: ' + path);
       };

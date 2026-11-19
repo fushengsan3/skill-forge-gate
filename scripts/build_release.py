@@ -48,6 +48,7 @@ def build_package(source, output_dir, edition):
                                  'README.md':'README.md', 'SKILL.md':'SKILL.md'}.items():
             content[target] = (source/'editions/coreless'/template).read_bytes()
     sha = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
+    content['daemon/app_version.py'] = content['daemon/app_version.py'].replace(b'COMMIT = ""', ('COMMIT = "' + sha + '"').encode('utf-8'))
     content['sources.json'] = json.dumps({'skill-forge':{'self':True,'type':'remote',
         'url':'https://github.com/fushengsan3/skill-forge-gate', 'branch':'main',
         'installed_sha':sha}},ensure_ascii=False,indent=2).encode('utf-8')

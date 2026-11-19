@@ -430,6 +430,19 @@ button, a, select, input { -webkit-tap-highlight-color: transparent; }
 #feedback-mail[aria-disabled="true"] {opacity:.5;cursor:not-allowed}
 #feedback-modal .modal-foot {flex-wrap:wrap;justify-content:flex-end}
 @media(max-width:650px){.sidebar-foot{flex-wrap:wrap}.feedback-fields{grid-template-columns:1fr}}
+.app-upgrade { border:1px solid var(--border); border-radius:var(--radius); background:var(--paper); padding:12px 16px; margin-bottom:18px; }
+.app-upgrade-line { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.app-upgrade-status { color:var(--text-dim); font-size:12px; overflow-wrap:anywhere; }
+.app-upgrade-offer:not([hidden]) { display:flex; }
+.app-upgrade-offer[hidden] { display:none; }
+.app-upgrade-dialog { width:min(620px,100%); max-width:620px; max-height:85vh; overflow:auto; padding:26px 28px; }
+.app-upgrade-version { margin:16px 0; padding:12px 16px; background:var(--bg); border-radius:8px; font-size:13px; }
+.app-upgrade-title { font-size:22px; font-weight:500; margin:8px 0 12px; }
+.app-upgrade-dialog .btn { min-height:40px; padding:10px 18px; }
+.app-upgrade-offer p { margin:6px 0 10px; font-size:12px; color:var(--text-dim); }
+.app-upgrade-offer pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:200px; overflow:auto; font:inherit; font-size:13px; line-height:1.7; margin:12px 0; }
+.app-upgrade-offer details { margin-bottom:20px; padding-bottom:12px; border-bottom:1px solid var(--border); }
+.app-upgrade-offer summary { cursor:pointer; font-size:12px; margin-bottom:10px; }
 </style>
 </head>
 <body>
@@ -465,6 +478,20 @@ button, a, select, input { -webkit-tap-highlight-color: transparent; }
     </header>
     <div id="edition-notice" class="edition-notice" role="note" hidden></div>
     <div class="service-strip" role="status" aria-live="polite"><span class="service-dot" id="service-dot"></span><span id="service-status" data-lang="service_connecting">正在连接本地服务…</span><span id="update-status"></span><button class="btn btn-ghost btn-sm" id="btn-check-updates" data-lang="check_updates">检查更新</button></div>
+    <section class="app-upgrade" aria-label="工作台升级 / Workbench update">
+      <div class="app-upgrade-line"><span id="app-update-status" class="app-upgrade-status" role="status" aria-live="polite"></span><button id="btn-app-check" class="btn btn-ghost btn-sm" data-lang="app_check">检查工作台更新</button></div>
+      <div id="app-update-offer" class="modal-overlay app-upgrade-offer" role="dialog" aria-modal="true" aria-labelledby="app-update-title" hidden>
+       <div class="modal app-upgrade-dialog">
+        <p data-lang="app_upgrade">工作台升级</p>
+        <h2 id="app-update-title" class="app-upgrade-title"></h2>
+        <div id="app-update-version" class="app-upgrade-version"></div>
+        <p data-lang="app_update_hint">更新保留本机配置、技能记录和发现历史。选择保持当前版本后，本次版本不再自动提醒。</p>
+        <details><summary data-lang="app_release_notes">更新说明</summary><pre id="app-update-notes"></pre></details>
+        <div class="app-upgrade-line"><button id="btn-app-defer" class="btn btn-ghost btn-sm" data-lang="app_defer">保持当前版本</button><button id="btn-app-install" class="btn btn-primary btn-sm" data-lang="app_install">立即更新</button></div>
+       </div>
+      </div>
+      <button id="btn-app-reload" class="btn btn-primary btn-sm" data-lang="app_reload" hidden>刷新使用新版</button>
+    </section>
     <div class="workspace-columns">
       <div class="workspace-feed">
   <!-- 外部数据源管理面板 -->
@@ -802,6 +829,93 @@ Object.assign(LANG.zh, {"nav_discover": "发现技能", "nav_installed": "已安
 Object.assign(LANG.en, {"nav_discover": "Discover", "nav_installed": "Installed", "nav_versions": "Versions", "nav_sources": "Sources", "title_discover": "Find your next capability", "title_installed": "Your skill library", "title_versions": "Keep your tools in shape", "title_sources": "Expand your sources", "desc_discover": "Discover skills online and choose modules for your tools.", "desc_installed": "Manage installed skills, tool versions and verification records.", "desc_versions": "Update, choose an earlier version or restore a local backup.", "desc_sources": "Manage external sources and fetch new skills on demand.", "theme_label": "Workspace theme", "theme_note": "Saved in this browser", "inspector_title": "Module details", "inspector_empty": "Build your own toolkit", "inspector_hint": "Choose Install or View modules to compare features and select tool versions here.", "inspector_step1": "Review modules and their features", "inspector_step2": "Choose Claude Code / Codex", "inspector_step3": "Queue, verify and install", "queue_label": "Install queue", "version_view_hint": "Choose Versions for earlier releases and local backups. Claude Code and independent Codex versions are managed separately."});
 
 let currentLang = 'zh';
+Object.assign(LANG.zh, {app_check:'检查工作台更新',app_install:'立即更新',app_defer:'保持当前版本',app_reload:'刷新使用新版',
+  app_upgrade:'工作台升级',app_release_notes:'更新说明',app_update_hint:'更新保留本机配置、技能记录和发现历史。选择保持当前版本后，本次版本不再自动提醒。'});
+Object.assign(LANG.en, {app_check:'Check workbench update',app_install:'Update now',app_defer:'Keep current version',app_reload:'Reload new version',
+  app_upgrade:'Workbench update',app_release_notes:'Release notes',app_update_hint:'Updates preserve local settings, skill records and discovery history. Keeping this version dismisses this release until you check manually.'});
+let appUpdateState = DISCOVER_DATA._app_update || {};
+let appUpdateForce = false, appUpdateChecking = false, appUpdateTarget = '', appUpdateReload = false;
+let appUpdateTimer = null, appUpdateRetries = 0;
+let appUpdateOpener = null;
+let appUpdateSupported = false;
+
+function renderAppUpdate() {
+  var state = appUpdateState, zh = currentLang === 'zh';
+  var busy = ['downloading','installing','ready'].indexOf(state.phase) !== -1 || !!appUpdateTarget;
+  var message = (zh ? '工作台 ' : 'Workbench ') + (state.current_version || '—') + ' · '
+    + (state.edition === 'coreless' ? (zh ? '无核版' : 'Coreless') : (zh ? '完整版' : 'Full'));
+  if (appUpdateChecking || state.checking) message += zh ? ' · 正在检查新版…' : ' · Checking for updates…';
+  else if (state.phase === 'failed') message += ' · ' + (state.install_error || (zh ? '升级未完成，保留当前版本' : 'Update failed; current version retained'));
+  else if (state.install_error) message += ' · ' + state.install_error;
+  else if (busy) message += zh ? ' · ' + ({downloading:'正在下载安装包…',installing:'正在安装并保留本机数据…',ready:'正在重启本地服务…'}[state.phase] || '正在确认升级结果…') : ' · Updating; waiting for local service…';
+  else if (appUpdateReload) message += zh ? ' · 升级完成' : ' · Update complete';
+  else if (state.error) message += ' · ' + state.error;
+  else if (state.available) message += (zh ? ' · 可更新至 ' : ' · Available: ') + state.latest_version
+    + (state.deferred === state.tag ? (zh ? '（已选择保持当前版本）' : ' (deferred)') : '');
+  else if (state.checked_at) message += zh ? ' · 当前已是最新正式版' : ' · Up to date';
+  else message += zh ? ' · 抓取时自动检查新版' : ' · Updates checked with discovery';
+  document.getElementById('app-update-status').textContent = message;
+  document.getElementById('btn-app-check').disabled = !appUpdateSupported || busy || appUpdateChecking || !!state.checking;
+  var offer = document.getElementById('app-update-offer');
+  var wasHidden = offer.hidden;
+  offer.hidden = !appUpdateSupported || !state.available || busy || (state.deferred === state.tag && !appUpdateForce);
+  if (wasHidden && !offer.hidden) { appUpdateOpener = document.activeElement; document.getElementById('btn-app-defer').focus(); }
+  if (!wasHidden && offer.hidden && appUpdateOpener) { appUpdateOpener.focus(); appUpdateOpener = null; }
+  document.getElementById('app-update-title').textContent = (zh ? '发现工作台新版 ' : 'New workbench version ') + (state.latest_version || '');
+  document.getElementById('app-update-notes').textContent = state.notes || (zh ? '该版本暂无更新说明。' : 'No release notes.');
+  document.getElementById('app-update-version').textContent = (zh ? '当前 ' : 'Current ') + (state.current_version || '—') + ' → ' + (state.latest_version || '—')
+    + ' · ' + (state.edition === 'coreless' ? (zh ? '无核版' : 'Coreless') : (zh ? '完整版' : 'Full'));
+  document.getElementById('btn-app-reload').hidden = !appUpdateReload;
+}
+
+function scheduleAppUpdatePoll() {
+  clearTimeout(appUpdateTimer);
+  if (appUpdateRetries++ < 90) appUpdateTimer = setTimeout(function() { refreshAppUpdate(false); }, 1000);
+}
+
+function refreshAppUpdate(manual) {
+  if (manual && !appUpdateSupported) manual = false;
+  if (manual) { appUpdateForce = true; appUpdateChecking = true; appUpdateRetries = 0; renderAppUpdate(); }
+  return bridgeFetch(manual ? 'app-update/check' : 'app-update', manual ? {method:'POST'} : {})
+    .then(function(r) { return r.json(); }).then(function(data) {
+      if (!data.ok || !data.current_version) throw new Error(data.error || (currentLang === 'zh' ? '请重启桥接服务以启用工作台升级' : 'Restart the local service to enable updates'));
+      appUpdateSupported = true;
+      appUpdateState = data;
+      appUpdateRetries = 0;
+      if (appUpdateTarget && data.current_version === appUpdateTarget && !data.restart_required && data.phase === 'idle') {
+        appUpdateReload = true; appUpdateTarget = '';
+      }
+      if (data.phase === 'failed') appUpdateTarget = '';
+      if (data.phase === 'ready' && data.install_error) appUpdateTarget = '';
+      if (data.checking || appUpdateTarget || (data.restart_required && !data.install_error)) scheduleAppUpdatePoll();
+    }).catch(function(e) {
+      if (appUpdateTarget) {
+        scheduleAppUpdatePoll();
+        if (appUpdateRetries > 90) { appUpdateTarget = ''; appUpdateState.error = currentLang === 'zh' ? '未能确认服务重启，请手动重启桥接服务后刷新' : 'Restart the local service and reload to confirm the update'; }
+      } else appUpdateState.error = e.message;
+    }).finally(function() { appUpdateChecking = false; renderAppUpdate(); });
+}
+
+function deferAppUpdate() {
+  if (!appUpdateSupported) return Promise.resolve();
+  return bridgeFetch('app-update/defer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tag:appUpdateState.tag})})
+    .then(function(r) { return r.json(); }).then(function(data) {
+      if (!data.ok) throw new Error(data.error);
+      appUpdateState = data; appUpdateForce = false; renderAppUpdate();
+    }).catch(function(e) { showToast('⚠ ' + e.message); });
+}
+
+function installAppUpdate() {
+  if (!appUpdateSupported || !appUpdateState.available || appUpdateTarget) return;
+  appUpdateTarget = appUpdateState.latest_version;
+  appUpdateState.phase = 'downloading'; appUpdateRetries = 0; renderAppUpdate();
+  bridgeFetch('app-update/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tag:appUpdateState.tag})})
+    .then(function(r) { return r.json(); }).then(function(data) {
+      if (!data.ok) { appUpdateTarget = ''; appUpdateState.phase = 'failed'; appUpdateState.install_error = data.error; }
+      else { appUpdateState = data; if (data.phase === 'failed') appUpdateTarget = ''; else scheduleAppUpdatePoll(); }
+    }).catch(function() { scheduleAppUpdatePoll(); })
+    .finally(renderAppUpdate);
+}
 
 // 固定主题数据；切换只修改页面变量和浏览器本地偏好，不请求网络。
 const WORKSPACE_THEMES = [{"id":"mist-harbor","name":"雾港蓝","radius":14,"vars":{"bg":"#f5f3f3","paper":"#fefefe","ink":"#2a2e39","muted":"#60646f","accent":"#313f60","tint":"#e4e8f1","border":"#dbd9db","sidebar":"#f5f0ef","side-ink":"#333947","side-muted":"#636873","side-line":"#dad6d7","mark":"#98a9d0","mark-ink":"#2a2e39","heading":"#e4e8f2","selected":"#f8f9fb","button":"#313f60","button-ink":"#ffffff","nav":"#d7deed","nav-ink":"#39496f","nav-radius":"9px","mark-radius":"6px","elevation":"0 5px 18px #24324708","rail-margin":"0","rail-radius":"0","rail-shadow":"none"}},{"id":"rock-moss","name":"岩苔绿","radius":16,"vars":{"bg":"#f2f6f2","paper":"#fefefe","ink":"#2c3929","muted":"#5b6758","accent":"#3d6734","tint":"#e8f2e6","border":"#d8ddd8","sidebar":"#2b3d28","side-ink":"#f9faf8","side-muted":"#c4c9c3","side-line":"#51604f","mark":"#a3d19a","mark-ink":"#2c3929","heading":"#e3f0e0","selected":"#f9fbf8","button":"#3d6734","button-ink":"#ffffff","nav":"#a3d19a","nav-ink":"#2c3929","nav-radius":"16px","mark-radius":"16px","elevation":"0 0 0 transparent","rail-margin":"0","rail-radius":"0","rail-shadow":"none"}},{"id":"warm-clay","name":"暖陶橘","radius":6,"vars":{"bg":"#f8f6f5","paper":"#fefefe","ink":"#302623","muted":"#6f6360","accent":"#62433a","tint":"#efe7e4","border":"#dedbda","sidebar":"#efece8","side-ink":"#473833","side-muted":"#6f6360","side-line":"#d7d3cf","mark":"#d0b1a7","mark-ink":"#302623","heading":"#f1e9e6","selected":"#fbf9f9","button":"#62433a","button-ink":"#ffffff","nav":"#ede1dd","nav-ink":"#6a493e","nav-radius":"9px","mark-radius":"6px","elevation":"0 5px 18px #24324708","rail-margin":"0","rail-radius":"0","rail-shadow":"none"}},{"id":"haze-violet","name":"烟霞紫","radius":14,"vars":{"bg":"#f5f5f7","paper":"#fefefe","ink":"#302635","muted":"#69606f","accent":"#523562","tint":"#ebe3f0","border":"#dbdade","sidebar":"#efeff4","side-ink":"#403347","side-muted":"#6d6373","side-line":"#d6d5dc","mark":"#b895cb","mark-ink":"#302635","heading":"#ece4f1","selected":"#faf8fb","button":"#523562","button-ink":"#ffffff","nav":"#e3d6eb","nav-ink":"#5b3b6d","nav-radius":"6px","mark-radius":"6px","elevation":"0 0 0 transparent","rail-margin":"10px 0 10px 6px","rail-radius":"14px","rail-shadow":"0 4px 12px #24324706"}},{"id":"tidal-teal","name":"潮汐青","radius":14,"vars":{"bg":"#f3f6f5","paper":"#fefefe","ink":"#2d3b3e","muted":"#5c696b","accent":"#38585d","tint":"#e9f1f2","border":"#d9dedd","sidebar":"#e4ece9","side-ink":"#334447","side-muted":"#586567","side-line":"#cbd4d2","mark":"#a6c9cf","mark-ink":"#2d3b3e","heading":"#e8f1f2","selected":"#f9fbfb","button":"#38585d","button-ink":"#ffffff","nav":"#ddeaec","nav-ink":"#3f6369","nav-radius":"6px","mark-radius":"16px","elevation":"0 5px 18px #24324708","rail-margin":"0","rail-radius":"0","rail-shadow":"none"}},{"id":"wheat-gold","name":"麦穗金","radius":14,"vars":{"bg":"#f7f7f5","paper":"#fefefe","ink":"#3b3a2b","muted":"#6b695c","accent":"#736b29","tint":"#f4f2e8","border":"#dfdedb","sidebar":"#f1f3eb","side-ink":"#474533","side-muted":"#6b695c","side-line":"#d9dbd1","mark":"#dcd48f","mark-ink":"#3b3a2b","heading":"#f7f5e6","selected":"#fcfbf7","button":"#736b29","button-ink":"#ffffff","nav":"#f1eed4","nav-ink":"#6b6426","nav-radius":"9px","mark-radius":"10px","elevation":"0 0 0 transparent","rail-margin":"0","rail-radius":"0","rail-shadow":"none"}},{"id":"night-indigo","name":"夜航靛","radius":16,"vars":{"bg":"#f5f4f6","paper":"#fefefe","ink":"#2c2939","muted":"#62606f","accent":"#3d3467","tint":"#e5e3f1","border":"#dbdadd","sidebar":"#232031","side-ink":"#f9faf8","side-muted":"#c1c1c5","side-line":"#4b4856","mark":"#a197d0","mark-ink":"#2c2939","heading":"#e6e3f2","selected":"#f8f8fb","button":"#3d3467","button-ink":"#ffffff","nav":"#a197d0","nav-ink":"#2c2939","nav-radius":"16px","mark-radius":"16px","elevation":"0 5px 18px #24324708","rail-margin":"0","rail-radius":"0","rail-shadow":"none"}},{"id":"raspberry","name":"山莓红","radius":6,"vars":{"bg":"#f9f8f8","paper":"#fefefe","ink":"#3f2e36","muted":"#67585f","accent":"#642f48","tint":"#f4e8ed","border":"#e1dedf","sidebar":"#f2ebec","side-ink":"#47333d","side-muted":"#6f6067","side-line":"#dad1d4","mark":"#d498b4","mark-ink":"#3f2e36","heading":"#f0dbe5","selected":"#fbf8fa","button":"#642f48","button-ink":"#ffffff","nav":"#eed7e2","nav-ink":"#723652","nav-radius":"9px","mark-radius":"16px","elevation":"0 0 0 transparent","rail-margin":"10px 0 10px 6px","rail-radius":"14px","rail-shadow":"0 4px 12px #24324706"}},{"id":"apricot-sand","name":"杏砂棕","radius":16,"vars":{"bg":"#f6f8f8","paper":"#fefefe","ink":"#302923","muted":"#676058","accent":"#6e5234","tint":"#f1eae2","border":"#dcdddc","sidebar":"#eaf1f1","side-ink":"#473e33","side-muted":"#6b645c","side-line":"#d3d8d6","mark":"#cfaf8c","mark-ink":"#302923","heading":"#f1e7dd","selected":"#fbf9f7","button":"#6e5234","button-ink":"#ffffff","nav":"#ece0d3","nav-ink":"#735536","nav-radius":"9px","mark-radius":"6px","elevation":"0 0 0 transparent","rail-margin":"0","rail-radius":"0","rail-shadow":"none"}},{"id":"graphite","name":"石墨银","radius":6,"vars":{"bg":"#f3f3f5","paper":"#fefefe","ink":"#272b36","muted":"#636773","accent":"#545863","tint":"#e7e8eb","border":"#d8d9dc","sidebar":"#edecee","side-ink":"#333947","side-muted":"#60646f","side-line":"#d3d3d7","mark":"#b6b9c1","mark-ink":"#272b36","heading":"#f0f1f3","selected":"#fafafa","button":"#545863","button-ink":"#ffffff","nav":"#e3e4e7","nav-ink":"#4d515b","nav-radius":"16px","mark-radius":"10px","elevation":"0 0 0 transparent","rail-margin":"10px 0 10px 6px","rail-radius":"14px","rail-shadow":"0 4px 12px #24324706"}}];
@@ -912,6 +1026,7 @@ function setLang(lang) {
   // 期状态条是 JS 拼出来的，扫不到 data-lang，得手动重建
   renderPeriodBar(PERIODS.length ? PERIODS[currentIndex()] : null);
   renderSkills();
+  renderAppUpdate();
 }
 
 function applyLang() {
@@ -1579,7 +1694,8 @@ function fetchExtSources() {
         } else {
           showToast('✅ 已拉取 ' + (data.count || 0) + ' 个 skill');
         }
-      }).catch(function() { showToast('⚠ 拉取失败，请检查本地服务是否运行'); });
+      }).catch(function() { showToast('⚠ 拉取失败，请检查本地服务是否运行'); })
+        .finally(function() { refreshAppUpdate(false); });
   });
 }
 
@@ -1758,7 +1874,7 @@ function searchWithAI() {
       status.textContent = (currentLang === 'zh' ? '搜索未完成：' : 'Search failed: ') + e.message;
       renderSkills();
     })
-    .finally(function() { if (requestId === semanticRequest) button.disabled = false; });
+    .finally(function() { if (requestId === semanticRequest) button.disabled = false; refreshAppUpdate(false); });
 }
 
 // ============================================================
@@ -2526,6 +2642,19 @@ function bindStaticHandlers() {
     renderSkills();
   });
   on('btn-ai-search', 'click', searchWithAI);
+  on('btn-app-check', 'click', function() { refreshAppUpdate(true); });
+  on('btn-app-install', 'click', installAppUpdate);
+  on('btn-app-defer', 'click', deferAppUpdate);
+  on('btn-app-reload', 'click', function() { window.location.reload(); });
+  on('app-update-offer', 'keydown', function(e) {
+    if (e.key === 'Escape') { e.preventDefault(); deferAppUpdate(); }
+    if (e.key === 'Tab') {
+      var targets = this.querySelectorAll('summary, button');
+      var first = targets[0], last = targets[targets.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
 }
 
 // ============================================================
@@ -2864,6 +2993,8 @@ renderSkills();
 updateQueueBadge();
 initInstalled();
 loadExtSources();
+renderAppUpdate();
+refreshAppUpdate(false);
 
 // 异步队列（3s 超时）
 var ctrl = new AbortController();

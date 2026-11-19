@@ -698,6 +698,8 @@ class TestWatchdog(unittest.TestCase):
 
     def setUp(self):
         """设置临时 skill root 并 mock SKILL_ROOT"""
+        self.update_checker = patch('daemon.app_updater.check_async').start()
+        self.addCleanup(patch.stopall)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.skill_root = Path(self.temp_dir.name) / ".claude" / "skills" / "skill-forge"
         (self.skill_root / "daemon").mkdir(parents=True, exist_ok=True)
@@ -978,6 +980,7 @@ class TestWatchdog(unittest.TestCase):
         self.assertTrue(result)
         mock_notify.assert_called_once()
         mock_panel.assert_called_once()
+        self.update_checker.assert_called_once_with(self.skill_root)
 
     # 功能板块榜上的简介**也要过翻译**（2026-10-15 补）。
     #

@@ -29,7 +29,7 @@ SNOOZE_INTERVAL = 3600  # 1 小时
 # 不再有任何 import 期的副作用。
 
 # 添加模块路径
-sys.path.insert(0, str(SKILL_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Windows MessageBox 常量
 MB_ABORTRETRYIGNORE = 0x00000002
@@ -86,6 +86,8 @@ def check_connectivity() -> bool:
 def run_weekly_scan():
     """执行周度扫描主流程"""
     log("开始周度扫描...")
+    from daemon import app_updater
+    update_check = app_updater.check_async(SKILL_ROOT)
 
     # 导入扫描模块
     from daemon.fetcher import fetch_all_sources
@@ -208,6 +210,7 @@ def run_weekly_scan():
         log(f"bridge 密钥轮换失败（旧密钥继续有效）: {e}")
 
     # 5. 生成面板 HTML
+    update_check.join(timeout=1)
     generate_panel_html(categorized, discover_dir / "latest.html",
                         sections=sections_payload)
 
@@ -325,6 +328,8 @@ def generate_panel_html(categorized: dict, output_path: Path, sections: dict = N
     # 不该让"给面板看的字段"漏进通用数据里。
     from daemon import edition
     payload = dict(categorized)
+    from daemon import app_updater
+    payload['_app_update'] = app_updater.status(SKILL_ROOT)
     payload["_edition"] = edition.info()
     payload["_installed"] = installed_snapshot(SKILL_ROOT)
 

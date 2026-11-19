@@ -335,7 +335,7 @@ def _inside(root: Path, rel: str) -> bool:
 
 
 def deploy(src: Path, dst: Path, dry_run: bool = False, prune: bool = False,
-           allow_untracked: bool = False) -> dict:
+           allow_untracked: bool = False, on_archive=None) -> dict:
     src, dst = src.resolve(), dst.resolve()
 
     if src == dst:
@@ -382,7 +382,8 @@ def deploy(src: Path, dst: Path, dry_run: bool = False, prune: bool = False,
     previous = {p for p in previous if _inside(dst, p)}
 
     keep = set(to_copy)
-    stale = sorted(previous - keep)
+    # A formerly shipped file can become user data in a later version.
+    stale = sorted(rel for rel in previous - keep if not is_data(rel, data_paths))
     untracked = []
     for p in sorted(dst.rglob("*")):
         if not p.is_file():
@@ -434,6 +435,8 @@ def deploy(src: Path, dst: Path, dry_run: bool = False, prune: bool = False,
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     result["archive"] = str(write_archive(dst, stamp, data_paths))
+    if on_archive:
+        on_archive(result["archive"])
 
     for rel in to_copy:
         s, d = src / rel, dst / rel

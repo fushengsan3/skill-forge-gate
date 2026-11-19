@@ -4,8 +4,6 @@
 """
 import json
 import re
-import urllib.request
-import urllib.parse
 from datetime import datetime
 from pathlib import Path
 
@@ -16,12 +14,7 @@ LOG_FILE = SKILL_ROOT / "daemon" / "watchdog.log"
 
 
 def log(msg: str):
-    """记一行到与 installer / watchdog 同一个日志文件。
-
-    **这个模块以前一处日志都没有**，而它有三种结果长得一模一样：
-    AI 成功、AI 失败后回退 Google、两个后端都失败后留空。
-    用户选了 AI、实际每次都在走 Google —— 在扫描报告里完全看不出来。
-    """
+    """记录公开简介翻译失败的原因，不记录密钥或原始内容。"""
     try:
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -30,34 +23,6 @@ def log(msg: str):
     except OSError:
         # 日志写不进去，不该让翻译（连带发现新 skill 的主流程）失败。
         pass
-
-
-def _api_translate(text: str) -> str:
-    """调用 Google Translate API 翻译单条文本"""
-    from daemon import privacy
-    if not privacy.allow_unverified_translation():
-        return ""
-    url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=" + urllib.parse.quote(text, safe="")
-    from daemon import net
-    opener = net.build_opener()
-    req = urllib.request.Request(url, headers={"User-Agent": "skill-forge/1.0"})
-
-    try:
-        with opener.open(req, timeout=15) as resp:
-            raw = resp.read().decode("utf-8")
-            # API 返回格式: [[["译文","原文",...],...],null,"en"]
-            data = json.loads(raw)
-            sentences = []
-            for segment in data[0]:
-                if segment[0]:
-                    sentences.append(segment[0])
-            return "".join(sentences)
-    except Exception as e:
-        # 只记异常的**类型**，不记 e 全文 —— 理由同 translate_ai.py:107：
-        # 有些库会把请求头（含密钥）印进错误里。
-        # 以前这里是完全无声的：`return ""` 与"这条描述本来就是空的"无法区分。
-        log(f"Google 后端失败：{type(e).__name__}")
-        return ""
 
 
 def _load_cache() -> dict:
@@ -75,31 +40,6 @@ def _save_cache(cache: dict):
     """保存翻译缓存"""
     CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     CACHE_FILE.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _translate_one(text: str, cfg: dict):
-    """按配置选后端翻译一条。
-
-    返回 (译文, 实际用的后端)。译文为空表示两个后端都没成，调用方留空即可。
-
-    **AI 失败必须回退到 Google**，这是刻意的：AI 后端会因为密钥过期、
-    余额不足、模型下线、网络不通等原因失败，而这些都不该让整个扫描
-    （连带发现新 skill 的主流程）跟着失败。
-    """
-    from daemon import privacy
-    if not privacy.allow_unverified_translation():
-        return "", "local"
-    if cfg.get("backend") == "ai":
-        try:
-            from daemon import translate_ai
-            return translate_ai.translate(text, cfg.get("model", ""), cfg.get("prompt", "")), "ai"
-        except Exception as e:
-            # 回退不往上抛 —— 见上面的理由。但**要留一行痕迹**：
-            # "选了 AI、其实走了 Google"以前在任何输出里都看不出来。
-            log(f"AI 后端失败，本轮回退 Google：{type(e).__name__}")
-        return _api_translate(text), "google"
-
-    return _api_translate(text), "google"
 
 
 def _has_translation(text):

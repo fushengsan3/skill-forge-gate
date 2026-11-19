@@ -72,11 +72,13 @@ class ExternalSourcesTests(unittest.TestCase):
         class Handler:
             def _json_reply(self, payload): self.payload = payload
         handler = Handler()
-        with patch.object(queue_bridge, 'EXT_SOURCES_FILE', self.file):
+        with patch.object(queue_bridge, 'EXT_SOURCES_FILE', self.file), \
+             patch.object(queue_bridge.app_updater, 'check_async') as check_update:
             queue_bridge.QueueHandler._handle_save_ext_sources(handler, {'sources':[{'url':'https://example.com/skills','label':'test'}]})
             self.assertTrue(handler.payload['ok'])
             with patch.object(fetcher, 'api_get', return_value={'ok':True,'data':[{'name':'alpha','url':'https://github.com/a/alpha'}]}):
                 queue_bridge.QueueHandler._handle_fetch_ext_sources(handler)
+            check_update.assert_called_once_with(queue_bridge.SKILL_ROOT)
             self.assertTrue(handler.payload['ok'])
             self.assertEqual(handler.payload['count'], 1)
             queue_bridge.QueueHandler._handle_save_ext_sources(handler, {'sources':[{'url':'https://example.com/?token=secret'}]})

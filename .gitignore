@@ -23,6 +23,7 @@ templates/.bridge-key
 templates/.bridge-keys-prev.json
 templates/.bridge-rotation.json
 templates/translate-config.json
+templates/app-update.json
 templates/codex-sync.json
 templates/codex-sources.json
 templates/external_sources.json

@@ -30,10 +30,10 @@ _check_updates_lock = threading.Lock()
 _check_updates_cache = {"at": 0.0, "result": None}
 
 # 让 bridge 能独立启动（R4-b 会把它拆成常驻服务），不依赖调用方先设好 sys.path
-sys.path.insert(0, str(SKILL_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from daemon.bridge_auth import KEY_HEADER, check_request, is_local_origin
 from daemon.installed import installed_snapshot
-from daemon import cc_models, credentials, safe_paths, secret_prompt, translate_config
+from daemon import cc_models, credentials, safe_paths, secret_prompt, translate_config, app_updater
 
 
 class QueueHandler(BaseHTTPRequestHandler):
@@ -68,7 +68,12 @@ class QueueHandler(BaseHTTPRequestHandler):
         if not self._authorized():
             return
         path = self.path.rstrip("/")
-        if path == "/ext-sources":
+        if path != '/app-update' and app_updater.OPERATION_LOCK.locked():
+            self._json_reply({'ok':False, 'error':'正在执行安装或升级，请稍后再试'}, code=409)
+            return
+        if path == "/app-update":
+            self._json_reply(app_updater.status(SKILL_ROOT))
+        elif path == "/ext-sources":
             self._handle_get_ext_sources()
         elif path == "/installed":
             self._handle_get_installed()
@@ -80,10 +85,26 @@ class QueueHandler(BaseHTTPRequestHandler):
             self._handle_get_translate_config()
         elif path == "/updates":
             self._handle_check_updates()
-        else:
+        elif path == '':
             self._handle_get_queue()
+        else:
+            self._json_reply({'ok':False, 'error':'unknown endpoint'}, code=404)
 
     def do_POST(self):
+        # Upgrades must wait for existing mutations; new mutations cannot run
+        # against files that are being replaced. Progress remains readable.
+        if self.path.rstrip('/') == '/app-update/install':
+            return self._dispatch_post()
+        if not app_updater.OPERATION_LOCK.acquire(blocking=False):
+            if self._authorized():
+                self._json_reply({'ok':False, 'error':'正在执行安装或升级，请稍后再试'}, code=409)
+            return
+        try:
+            return self._dispatch_post()
+        finally:
+            app_updater.OPERATION_LOCK.release()
+
+    def _dispatch_post(self):
         if not self._authorized():
             return
 
@@ -92,15 +113,18 @@ class QueueHandler(BaseHTTPRequestHandler):
         try:
             content_length = int(self.headers.get("Content-Length", 0) or 0)
         except (TypeError, ValueError):
-            content_length = 0
-        if content_length < 0:
-            content_length = 0
+            self._json_reply({'ok':False, 'error':'invalid Content-Length'}, code=400)
+            return
+        if content_length < 0 or content_length > 2 * 1024 * 1024:
+            self._json_reply({'ok':False, 'error':'invalid request size'}, code=400)
+            return
 
         body = self.rfile.read(content_length) if content_length else b"{}"
         try:
             data = json.loads(body) if body else {}
         except (json.JSONDecodeError, UnicodeDecodeError):
-            data = {}
+            self._json_reply({'ok':False, 'error':'invalid JSON body'}, code=400)
+            return
 
         # 顶层必须是对象。`[]` / `"x"` / `42` 都能过 json.loads，
         # 但后面每个 handler 都在 `data.get(...)` 上取值 —— 列表没有 .get，
@@ -111,7 +135,16 @@ class QueueHandler(BaseHTTPRequestHandler):
                              code=400)
             return
 
-        if self.path.rstrip("/") == "/ext-sources":
+        if self.path.rstrip('/') == '/app-update/check':
+            self._json_reply(app_updater.check(SKILL_ROOT, force=True))
+        elif self.path.rstrip('/') == '/app-update/defer':
+            self._json_reply(app_updater.defer(SKILL_ROOT, data.get('tag')))
+        elif self.path.rstrip('/') == '/app-update/install':
+            def ready():
+                self.server.restart_requested = True
+                self.server.shutdown()
+            self._json_reply(app_updater.start_install(SKILL_ROOT, data.get('tag'), on_ready=ready))
+        elif self.path.rstrip("/") == "/ext-sources":
             self._handle_save_ext_sources(data)
         elif self.path.rstrip("/") == "/ext-sources/fetch":
             self._handle_fetch_ext_sources()
@@ -137,8 +170,10 @@ class QueueHandler(BaseHTTPRequestHandler):
             self._handle_delete_credential(data)
         elif self.path.rstrip("/") == "/translate-config":
             self._handle_save_translate_config(data)
-        else:
+        elif self.path.rstrip('/') == '':
             self._handle_save_queue(data)
+        else:
+            self._json_reply({'ok':False, 'error':'unknown endpoint'}, code=404)
 
     # ---- 密钥与模型（R6/R9）----
 
@@ -295,6 +330,7 @@ class QueueHandler(BaseHTTPRequestHandler):
 
     def _handle_fetch_ext_sources(self):
         """从外部数据源拉取 skill 并返回结果"""
+        app_updater.check_async(SKILL_ROOT)
         try:
             from daemon.fetcher import fetch_external_sources
             report = fetch_external_sources(with_report=True)
@@ -306,6 +342,7 @@ class QueueHandler(BaseHTTPRequestHandler):
     # ---- Install ----
 
     def _handle_ai_search(self, data):
+        app_updater.check_async(SKILL_ROOT)
         from daemon.semantic_search import search_online
         self._json_reply(search_online(data.get('query')))
 
@@ -426,8 +463,7 @@ class QueueHandler(BaseHTTPRequestHandler):
         if safe_paths.is_forge_dir(skill_dir, SKILLS_DIR):
             self._json_reply({
                 "ok": False, "error": "self-update-refused",
-                "message": "拒绝在面板里更新 skill-forge 本体 —— 请用 scripts/self-update.sh，"
-                           "它会先保住数据再替换。",
+                "message": "请使用面板顶部的「工作台升级」，它会保留本机数据并安装对应版本。",
             })
             return
 
@@ -448,7 +484,7 @@ class QueueHandler(BaseHTTPRequestHandler):
             return
         if info.get("self"):
             self._json_reply({"ok": False, "error": "self-update-refused",
-                              "message": "skill-forge 自己走 scripts/self-update.sh"})
+                              "message": "请使用面板顶部的「工作台升级」"})
             return
 
         url = (info.get("url") or "").strip()
@@ -658,8 +694,23 @@ def start_bridge(allow_reuse: bool = True):
             # 那是个阻塞操作（最长 180 秒等用户输入）。单线程的话
             # 整个面板在这期间会完全卡死，看起来像崩了。
             server = ThreadingHTTPServer(("127.0.0.1", PORT), QueueHandler)
+            app_updater.mark_started(SKILL_ROOT)
             backoff = 5  # 起来了就把退避重置
             server.serve_forever()
+            server.server_close()
+            if getattr(server, 'restart_requested', False):
+                import subprocess
+                executable = Path(sys.executable)
+                quiet = executable.with_name('pythonw.exe')
+                if sys.platform == 'win32' and quiet.is_file(): executable = quiet
+                try:
+                    subprocess.Popen([str(executable), str(SKILL_ROOT/'daemon/queue_bridge.py')],
+                                     cwd=str(SKILL_ROOT), stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                except OSError:
+                    app_updater._save(SKILL_ROOT, phase='ready', restart_required=True,
+                                      install_error='升级已安装，本地服务未能自动启动，请手动重启桥接服务')
             # serve_forever 正常返回 = 被要求关闭，这时该退出而不是重来
             return
         except KeyboardInterrupt:
